@@ -26,17 +26,17 @@ type ExampleReply struct {
 
 // Add your RPC definitions here.
 type PingRequest struct {
-	ID int64 // worker id
+	ID int // worker id
 }
-type taskRequest = PingRequest
+type TaskRequest = PingRequest
 
 type PingResponse struct {
 	Type string // pong, exit
 }
-type taskResponse struct {
+type TaskResponse struct {
 	Type  string // map, reduce
 	File  string // file path
-	Count int64  // reduce output count
+	Count int    // reduce output count
 }
 
 // Cook up a unique-ish UNIX-domain socket name

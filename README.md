@@ -14,12 +14,12 @@
   * Coordinator should know when all tasks are done
   * Workers should also get a signal that tasks are done and exit
 * Files are already split (pg-*.txt) and are passed to map tasks
+* Mappers should output to nReduce files
+
 
 ### Questions
 
-* do we need two way comm between workers and coordinator?
-  * for coordinator to ping for health-check and for shutdown
 * what data we need to keep in coordinator?
-  * input file and input chunks
+  * input files
   * list of workers (status, last seen, etc)
   * list of tasks (map and reduce) with status, worker_id, output file path

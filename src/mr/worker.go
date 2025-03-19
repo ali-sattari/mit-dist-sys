@@ -1,11 +1,13 @@
 package mr
 
 import (
+	"bufio"
 	"fmt"
 	"hash/fnv"
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
 	"time"
 )
 
@@ -29,19 +31,43 @@ func Worker(
 	reducef func(string, []string) string,
 ) {
 	sig := make(chan bool)
+	wid := os.Getpid()
 	// loop to ping
 	pinger := periodicJobs(time.Millisecond*500, func() {
-		if Ping(0) {
+		if ping(wid) {
 			sig <- true
 		}
 	})
 	go pinger()
 
-	// CallExample()
 	// loop to poll coordinator for tasks
-	// RPC call to coordinator to get task
-	// execute map or reduce func based on task
-	// split map files?
+	busy := false
+	tasker := periodicJobs(time.Second, func() {
+		if busy {
+			return
+		}
+
+		t := getTask(wid)
+		if t != nil {
+			busy = true
+			switch t.Type {
+			case "map":
+				content, err := os.ReadFile(t.File)
+				if err != nil {
+					log.Printf("Error reading file: %v\n", err)
+					return
+				}
+				writeResults(t.File, t.Count, mapf(t.File, string(content)))
+
+				// register success with coordinator
+
+			case "reduce":
+
+			}
+			busy = false
+		}
+	})
+	go tasker()
 
 	// catch exit signal from chan
 	switch {
@@ -49,10 +75,9 @@ func Worker(
 		// wait for something?
 		os.Exit(0)
 	}
-
 }
 
-func Ping(id int64) bool {
+func ping(id int) bool {
 	resp := PingResponse{}
 	ok := call("Coordinator.Ping", &PingRequest{ID: id}, &resp)
 
@@ -68,35 +93,62 @@ func Ping(id int64) bool {
 	return false
 }
 
-func GetTask(id int64) {
+func getTask(id int) *TaskResponse {
+	resp := TaskResponse{}
+	ok := call("Coordinator.GetTask", &TaskRequest{ID: id}, &resp)
 
+	if ok {
+		// fmt.Printf("GetTask reply %+v\n", resp)
+		return &resp
+	}
+
+	return nil
 }
 
-// example function to show how to make an RPC call to the coordinator.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func CallExample() {
+func writeResults(file string, buckets int, content []KeyValue) {
+	sort.Slice(content, func(i, j int) bool {
+		return content[i].Key >= content[j].Key
+	})
 
-	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := ExampleReply{}
-
-	// send the RPC request, wait for the reply.
-	// the "Coordinator.Example" tells the
-	// receiving server that we'd like to call
-	// the Example() method of struct Coordinator.
-	ok := call("Coordinator.Example", &args, &reply)
-	if ok {
-		// reply.Y should be 100.
-		fmt.Printf("reply.Y %v\n", reply.Y)
-	} else {
-		fmt.Printf("call failed!\n")
+	last_hash := 0
+	last_index := 0
+	for i := range content {
+		h := ihash(content[i].Key)
+		if last_hash != h {
+			f := getInterimFileName(ihash(file)%buckets, last_hash%buckets)
+			err := writeToFile(f, content[last_index:i])
+			if err != nil {
+				log.Printf("error writing intermediary results for %s: %+v", f, err)
+			}
+			last_hash = h
+			last_index = i
+		}
 	}
+}
+
+func writeToFile(path string, content []KeyValue) error {
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	for i := range content {
+		_, err := writer.WriteString(fmt.Sprintf("%v %v\n", content[i].Key, content[i].Value))
+		if err != nil {
+			return err
+		}
+	}
+	return writer.Flush()
+}
+
+func getInterimFileName(m, r int) string {
+	return fmt.Sprintf("mr-%d-%d", m, r)
+}
+
+func getFinalFileName(n int) string {
+	return fmt.Sprintf("mr-out-%d", n)
 }
 
 // send an RPC request to the coordinator, wait for the response.

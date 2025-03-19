@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -18,14 +19,17 @@ const (
 )
 
 type WorkerRecord struct {
-	id       int64
+	id       int
 	lastSeen time.Time
 	status   WorkerStatus
 }
 
 type Coordinator struct {
-	workers map[int64]WorkerRecord
+	files   []string
+	workers map[int]WorkerRecord
+	nReduce int
 	counter int64
+	// tasks? separate toDo and done? or toMap, toReduce, done?
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -53,7 +57,17 @@ func (c *Coordinator) Ping(args *PingRequest, reply *PingResponse) error {
 	return nil
 }
 
-func (c *Coordinator) processPing(id int64) {
+func (c *Coordinator) GetTask(args *TaskRequest, reply *TaskResponse) error {
+	c.updateWorkerStatus(args.ID)
+
+	reply.Type = "map"
+	reply.File = c.files[0]
+	reply.Count = c.nReduce
+
+	return nil
+}
+
+func (c *Coordinator) processPing(id int) {
 	w, ok := c.workers[id]
 	if ok {
 		w.lastSeen = time.Now()
@@ -66,6 +80,20 @@ func (c *Coordinator) processPing(id int64) {
 	// fmt.Printf("Got ping from worker %d: %+v\n", id, c.workers[id])
 }
 
+func (c *Coordinator) updateWorkerStatus(id int) {
+	w, ok := c.workers[id]
+	if ok {
+		w.lastSeen = time.Now()
+		w.status = WorkerBusy
+	} else {
+		c.workers[id] = WorkerRecord{
+			id:       id,
+			lastSeen: time.Now(),
+			status:   WorkerBusy,
+		}
+	}
+}
+
 // start a thread that listens for RPCs from worker.go
 func (c *Coordinator) server() {
 	rpc.Register(c)
@@ -73,6 +101,7 @@ func (c *Coordinator) server() {
 	//l, e := net.Listen("tcp", ":1234")
 	sockname := coordinatorSock()
 	os.Remove(sockname)
+	log.Printf("server socket: %+v\n", sockname)
 	l, e := net.Listen("unix", sockname)
 	if e != nil {
 		log.Fatal("listen error:", e)
@@ -95,10 +124,13 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{
-		workers: map[int64]WorkerRecord{},
+		nReduce: nReduce,
+		files:   files,
+		workers: map[int]WorkerRecord{},
 	}
 
 	// Your code here.
+	fmt.Printf("new coordinator with files: %+v\n", files)
 
 	c.server()
 	return &c
