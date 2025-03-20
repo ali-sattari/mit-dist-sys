@@ -2,6 +2,7 @@ package mr
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -50,18 +51,33 @@ func Worker(
 		t := getTask(wid)
 		if t != nil {
 			busy = true
-			switch t.Type {
+			switch t.Step {
 			case "map":
 				content, err := os.ReadFile(t.File)
 				if err != nil {
-					log.Printf("Error reading file: %v\n", err)
+					log.Printf("Error reading file %s: %v\n", t.File, err)
 					return
 				}
-				writeResults(t.File, t.Count, mapf(t.File, string(content)))
+				writeMapResults(
+					t.MapIndex,
+					t.ReduceCount,
+					mapf(t.File, string(content)),
+				)
 
 				// register success with coordinator
+				updateTask(t.Id)
 
 			case "reduce":
+				rInp := getReduceInput(t)
+				for k, vl := range rInp {
+					err := writeReduceResults(t.ReduceCount, k, reducef(k, vl))
+					if err != nil {
+						log.Printf("Error writing results file %s: %v\n", t.File, err)
+					}
+				}
+
+				// register success with coordinator
+				updateTask(t.Id)
 
 			}
 			busy = false
@@ -93,9 +109,9 @@ func ping(id int) bool {
 	return false
 }
 
-func getTask(id int) *TaskResponse {
-	resp := TaskResponse{}
-	ok := call("Coordinator.GetTask", &TaskRequest{ID: id}, &resp)
+func getTask(id int) *GetTaskResponse {
+	resp := GetTaskResponse{}
+	ok := call("Coordinator.GetTask", &GetTaskRequest{ID: id}, &resp)
 
 	if ok {
 		// fmt.Printf("GetTask reply %+v\n", resp)
@@ -105,9 +121,46 @@ func getTask(id int) *TaskResponse {
 	return nil
 }
 
-func writeResults(file string, buckets int, content []KeyValue) {
+func updateTask(id int) *UpdateTaskResponse {
+	resp := UpdateTaskResponse{}
+	ok := call("Coordinator.UpdateTask", &UpdateTaskRequest{Id: id}, &resp)
+
+	if ok {
+		// fmt.Printf("UpdateTask reply %+v\n", resp)
+		return &resp
+	}
+
+	return nil
+}
+
+func getReduceInput(t *GetTaskResponse) map[string][]string {
+	res := map[string][]string{}
+	f := getInterimFileName(t.MapIndex, t.ReduceIndex)
+
+	file, err := os.Open(f)
+	if err != nil {
+		log.Printf("getReduceInput: error opening file %s: %v\n", f, err)
+	}
+	defer file.Close()
+
+	dec := json.NewDecoder(file)
+	for {
+		var x map[string][]string
+		if err := dec.Decode(&x); err != nil {
+			// log.Printf("Error decoding json %s: %v\n", f, err)
+			break
+		}
+		for k, vs := range x {
+			res[k] = vs
+		}
+	}
+
+	return res
+}
+
+func writeMapResults(fileId int, buckets int, content []KeyValue) {
 	sort.Slice(content, func(i, j int) bool {
-		return content[i].Key >= content[j].Key
+		return content[i].Key <= content[j].Key
 	})
 
 	last_hash := 0
@@ -115,8 +168,8 @@ func writeResults(file string, buckets int, content []KeyValue) {
 	for i := range content {
 		h := ihash(content[i].Key)
 		if last_hash != h {
-			f := getInterimFileName(ihash(file)%buckets, last_hash%buckets)
-			err := writeToFile(f, content[last_index:i])
+			f := getInterimFileName(fileId, last_hash%buckets)
+			err := writeMapToFile(f, content[last_index:i])
 			if err != nil {
 				log.Printf("error writing intermediary results for %s: %+v", f, err)
 			}
@@ -126,19 +179,42 @@ func writeResults(file string, buckets int, content []KeyValue) {
 	}
 }
 
-func writeToFile(path string, content []KeyValue) error {
+func writeMapToFile(path string, content []KeyValue) error {
+	if len(content) == 0 {
+		// log.Printf("writeMapToFile: empty content!")
+		return nil
+	}
+
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
+	enc := json.NewEncoder(file)
+
+	data := map[string][]string{}
+	data[content[0].Key] = []string{}
+	for i := range content {
+		data[content[0].Key] = append(data[content[0].Key], content[i].Value)
+	}
+
+	return enc.Encode(&data)
+}
+
+func writeReduceResults(buckets int, key, content string) error {
+	f := getFinalFileName(ihash(key) % buckets)
+	file, err := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("writeReduceResults: error opening file for %s: %+v", f, err)
+	}
+	defer file.Close()
+
+	// log.Printf("reduce result for %s: %s %s\n", f, key, content)
 
 	writer := bufio.NewWriter(file)
-	for i := range content {
-		_, err := writer.WriteString(fmt.Sprintf("%v %v\n", content[i].Key, content[i].Value))
-		if err != nil {
-			return err
-		}
+	_, err = writer.WriteString(fmt.Sprintf("%v %v\n", key, content))
+	if err != nil {
+		log.Printf("error writing final results for %s: %+v", f, err)
 	}
 	return writer.Flush()
 }
