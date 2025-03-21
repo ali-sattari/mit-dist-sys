@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 )
@@ -42,45 +43,42 @@ func Worker(
 	go pinger()
 
 	// loop to poll coordinator for tasks
-	busy := false
 	tasker := periodicJobs(time.Second, func() {
-		if busy {
+		t := getTask(wid)
+		if t == nil {
 			return
 		}
 
-		t := getTask(wid)
-		if t != nil {
-			busy = true
-			switch t.Step {
-			case "map":
-				content, err := os.ReadFile(t.File)
-				if err != nil {
-					log.Printf("Error reading file %s: %v\n", t.File, err)
-					return
-				}
-				writeMapResults(
-					t.MapIndex,
-					t.ReduceCount,
-					mapf(t.File, string(content)),
-				)
-
-				// register success with coordinator
-				updateTask(t.Id)
-
-			case "reduce":
-				rInp := getReduceInput(t)
-				for k, vl := range rInp {
-					err := writeReduceResults(t.ReduceCount, k, reducef(k, vl))
-					if err != nil {
-						log.Printf("Error writing results file %s: %v\n", t.File, err)
-					}
-				}
-
-				// register success with coordinator
-				updateTask(t.Id)
-
+		switch t.Step {
+		case "map":
+			content, err := os.ReadFile(t.File)
+			if err != nil {
+				log.Printf("Error reading file %s: %v\n", t.File, err)
+				return
 			}
-			busy = false
+			writeMapResults(
+				t.Id,
+				t.ReduceCount,
+				mapf(t.File, string(content)),
+			)
+
+			// register success with coordinator
+			updateTask(t.Id)
+
+		case "reduce":
+			rInp := getReduceInput(t)
+			for k, vl := range rInp {
+				err := writeReduceResults(t.ReduceCount, k, reducef(k, vl))
+				if err != nil {
+					log.Printf("Error writing results file %s: %v\n", t.File, err)
+				}
+			}
+
+			// register success with coordinator
+			updateTask(t.Id)
+
+		default:
+			log.Printf("unsupported task type: %v\n", t)
 		}
 	})
 	go tasker()
@@ -102,19 +100,18 @@ func ping(id int) bool {
 		if resp.Type == "exit" {
 			return true
 		}
-	} else {
-		fmt.Printf("Ping call failed!\n")
 	}
 
 	return false
 }
 
 func getTask(id int) *GetTaskResponse {
+	// log.Printf("getTask: start %d", id)
 	resp := GetTaskResponse{}
 	ok := call("Coordinator.GetTask", &GetTaskRequest{ID: id}, &resp)
 
 	if ok {
-		// fmt.Printf("GetTask reply %+v\n", resp)
+		log.Printf("getTask reply for %d: %+v", id, resp)
 		return &resp
 	}
 
@@ -126,7 +123,7 @@ func updateTask(id int) *UpdateTaskResponse {
 	ok := call("Coordinator.UpdateTask", &UpdateTaskRequest{Id: id}, &resp)
 
 	if ok {
-		// fmt.Printf("UpdateTask reply %+v\n", resp)
+		// log.Printf("UpdateTask reply %d: %+v", id, resp)
 		return &resp
 	}
 
@@ -135,27 +132,43 @@ func updateTask(id int) *UpdateTaskResponse {
 
 func getReduceInput(t *GetTaskResponse) map[string][]string {
 	res := map[string][]string{}
-	f := getInterimFileName(t.MapIndex, t.ReduceIndex)
+	// log.Printf("getReduceInput: get input for %+v\n", t)
 
-	file, err := os.Open(f)
-	if err != nil {
-		log.Printf("getReduceInput: error opening file %s: %v\n", f, err)
-	}
-	defer file.Close()
+	for _, f := range getReduceFiles(t.ReduceIndex) {
+		// f := getInterimFileName("0", fmt.Sprint(t.ReduceIndex))
+		file, err := os.Open(f)
+		if err != nil {
+			log.Printf("getReduceInput: error opening file %s: %v\n", f, err)
+		}
 
-	dec := json.NewDecoder(file)
-	for {
-		var x map[string][]string
-		if err := dec.Decode(&x); err != nil {
-			// log.Printf("Error decoding json %s: %v\n", f, err)
-			break
+		// log.Printf("getReduceInput: processing file %s\n", f)
+
+		dec := json.NewDecoder(file)
+		for {
+			var x map[string][]string
+			if err := dec.Decode(&x); err != nil {
+				// log.Printf("Error decoding json %s: %v\n", f, err)
+				break
+			}
+			for k, vs := range x {
+				res[k] = append(res[k], vs...)
+			}
 		}
-		for k, vs := range x {
-			res[k] = vs
-		}
+
+		file.Close()
 	}
 
 	return res
+}
+
+func getReduceFiles(i int) []string {
+	pat := getInterimFileName("*", fmt.Sprint(i))
+	files, err := filepath.Glob(filepath.Join(".", pat))
+	if err != nil {
+		log.Printf("getReduceFiles: error getting files %s: %v\n", pat, err)
+	}
+
+	return files
 }
 
 func writeMapResults(fileId int, buckets int, content []KeyValue) {
@@ -165,17 +178,23 @@ func writeMapResults(fileId int, buckets int, content []KeyValue) {
 
 	last_hash := 0
 	last_index := 0
-	for i := range content {
-		h := ihash(content[i].Key)
+	for i, c := range content {
+		h := ihash(c.Key)
 		if last_hash != h {
-			f := getInterimFileName(fileId, last_hash%buckets)
+			f := getInterimFileName(fmt.Sprint(fileId), fmt.Sprint(last_hash%buckets))
 			err := writeMapToFile(f, content[last_index:i])
 			if err != nil {
-				log.Printf("error writing intermediary results for %s: %+v", f, err)
+				log.Printf("writeMapResults error writing intermediary results for %s: %+v", f, err)
 			}
 			last_hash = h
 			last_index = i
 		}
+	}
+	// last key group
+	f := getInterimFileName(fmt.Sprint(fileId), fmt.Sprint(last_hash%buckets))
+	err := writeMapToFile(f, content[last_index:])
+	if err != nil {
+		log.Printf("writeMapResults error writing intermediary results for %s: %+v", f, err)
 	}
 }
 
@@ -202,14 +221,12 @@ func writeMapToFile(path string, content []KeyValue) error {
 }
 
 func writeReduceResults(buckets int, key, content string) error {
-	f := getFinalFileName(ihash(key) % buckets)
+	f := getFinalFileName(fmt.Sprint(ihash(key) % buckets))
 	file, err := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("writeReduceResults: error opening file for %s: %+v", f, err)
 	}
 	defer file.Close()
-
-	// log.Printf("reduce result for %s: %s %s\n", f, key, content)
 
 	writer := bufio.NewWriter(file)
 	_, err = writer.WriteString(fmt.Sprintf("%v %v\n", key, content))
@@ -219,12 +236,12 @@ func writeReduceResults(buckets int, key, content string) error {
 	return writer.Flush()
 }
 
-func getInterimFileName(m, r int) string {
-	return fmt.Sprintf("mr-%d-%d", m, r)
+func getInterimFileName(m, r string) string {
+	return fmt.Sprintf("mri-%s-%s", m, r)
 }
 
-func getFinalFileName(n int) string {
-	return fmt.Sprintf("mr-out-%d", n)
+func getFinalFileName(n string) string {
+	return fmt.Sprintf("mr-out-%s", n)
 }
 
 // send an RPC request to the coordinator, wait for the response.
@@ -239,11 +256,17 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	}
 	defer c.Close()
 
-	err = c.Call(rpcname, args, reply)
-	if err == nil {
-		return true
+	ch := make(chan error, 1)
+	go func() { ch <- c.Call(rpcname, args, reply) }()
+	select {
+	case err := <-ch:
+		if err == nil {
+			return true
+		}
+		log.Printf("call error on %s: %+v", sockname, err)
+	case <-time.After(time.Second):
+		log.Printf("call timeout on %s", sockname)
 	}
 
-	fmt.Println(err)
 	return false
 }

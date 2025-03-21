@@ -9,6 +9,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/gammazero/deque"
 )
 
 type WorkerStatus int
@@ -42,6 +44,7 @@ type Coordinator struct {
 	nReduce    int
 	mtx        *sync.RWMutex
 	lastTaskId TaskId
+	queue      deque.Deque[TaskId]
 	todo       map[TaskId]*Task
 	done       map[TaskId]*Task
 }
@@ -54,7 +57,7 @@ func (c *Coordinator) Ping(args *PingRequest, reply *PingResponse) error {
 
 	c.processPing(args.ID)
 
-	log.Printf("Ping: workers %d, todo %d, done %d", len(c.workers), len(c.todo), len(c.done))
+	log.Printf("Ping: workers %d, todo %d, done %d, queue %d", len(c.workers), len(c.todo), len(c.done), c.queue.Len())
 
 	// check if there are still tasks to be done
 	if len(c.todo) == 0 {
@@ -67,31 +70,35 @@ func (c *Coordinator) Ping(args *PingRequest, reply *PingResponse) error {
 }
 
 func (c *Coordinator) GetTask(args *GetTaskRequest, reply *GetTaskResponse) error {
-	c.mtx.RLock()
-	defer c.mtx.RUnlock()
+	// log.Printf("GetTask: start for worker %d ", args.ID)
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
 
-	w := c.updateWorkerStatus(args.ID)
+	// w := c.updateWorkerStatus(args.ID)
 
 	if len(c.todo) > 0 {
 		// find the first unassigned task
-		for id, t := range c.todo {
-			// TODO: check for assignedAt field if worker is not nil and reassign it if more than X seconds
-			if t.worker == nil {
-				reply.Id = t.id
-				reply.Step = t.step
-				reply.File = t.file
-				reply.MapIndex = t.mapId
-				reply.ReduceIndex = t.parition
-				reply.ReduceCount = c.nReduce
-				reply.FileCount = len(c.files)
-
-				t.assignedAt = time.Now()
-				t.worker = w
-
-				log.Printf("GetTask: for worker %d got %+v: %+v\n", args.ID, id, c.todo[id])
-				break
-			}
+		first := c.queue.Front()
+		if c.todo[first].step != "map" && !c.areMapTasksDone() {
+			log.Printf("map tasks are not done %+v\n", c.todo[first])
+			return fmt.Errorf("map tasks are not done")
 		}
+
+		next := c.queue.PopFront()
+		t := c.todo[next]
+
+		reply.Id = t.id
+		reply.Step = t.step
+		reply.File = t.file
+		reply.ReduceIndex = t.parition
+		reply.ReduceCount = c.nReduce
+		reply.FileCount = len(c.files)
+
+		// t.assignedAt = time.Now()
+		// t.worker = w
+
+		// log.Printf("GetTask: for worker %d got %+v: %+v\n", args.ID, next, c.todo[next])
+
 	}
 
 	return nil
@@ -105,20 +112,6 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskRequest, reply *UpdateTaskRespo
 
 	t, ok := c.todo[args.Id]
 	if ok {
-		if t.step == "map" {
-			// move to reduce
-			for n := range c.nReduce {
-				c.todo[c.lastTaskId] = &Task{
-					id:       c.lastTaskId,
-					step:     "reduce",
-					mapId:    t.id,
-					parition: n,
-					file:     t.file,
-				}
-				c.lastTaskId++
-			}
-		}
-
 		// log.Printf("UpdateTask: remove %d from todo and add to done", args.Id)
 		c.done[args.Id] = t
 		delete(c.todo, args.Id)
@@ -128,6 +121,17 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskRequest, reply *UpdateTaskRespo
 
 	reply.Okay = true
 	return nil
+}
+
+func (c *Coordinator) areMapTasksDone() bool {
+	done := true
+	for _, t := range c.todo {
+		if t.step == "map" {
+			done = false
+		}
+	}
+
+	return done
 }
 
 func (c *Coordinator) processPing(id int) {
@@ -200,14 +204,23 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		done:    map[TaskId]*Task{},
 	}
 
-	// Your code here.
-	fmt.Printf("new coordinator with files: %+v\n", files)
 	for _, f := range files {
 		c.todo[c.lastTaskId] = &Task{
 			id:   c.lastTaskId,
 			step: "map",
 			file: f,
 		}
+		c.queue.PushBack(c.lastTaskId)
+		c.lastTaskId++
+	}
+
+	for n := range nReduce {
+		c.todo[c.lastTaskId] = &Task{
+			id:       c.lastTaskId,
+			step:     "reduce",
+			parition: n,
+		}
+		c.queue.PushBack(c.lastTaskId)
 		c.lastTaskId++
 	}
 

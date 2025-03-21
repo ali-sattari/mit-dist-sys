@@ -1,6 +1,8 @@
 package mr
 
-import "time"
+import (
+	"time"
+)
 
 func periodicJobs(dur time.Duration, f func()) func() {
 	ticker := time.NewTicker(dur)

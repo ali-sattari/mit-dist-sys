@@ -19,7 +19,5 @@
 
 ### Questions
 
-* what data we need to keep in coordinator?
-  * input files
-  * list of workers (status, last seen, etc)
-  * list of tasks (map and reduce) with status, worker_id, output file path
+* indexer adds duplicate items at reduce fase
+

@@ -1,2 +1,4 @@
 github.com/anishathalye/porcupine v1.0.0 h1:93eF6d26IMDky+G4h8FcLuYp1oO+no8a//I7asq/oKI=
 github.com/anishathalye/porcupine v1.0.0/go.mod h1:WM0SsFjWNl2Y4BqHr/E/ll2yY1GY1jqn+W7Z/84Zoog=
+github.com/gammazero/deque v1.0.0 h1:LTmimT8H7bXkkCy6gZX7zNLtkbz4NdS2z8LZuor3j34=
+github.com/gammazero/deque v1.0.0/go.mod h1:iflpYvtGfM3U8S8j+sZEKIak3SAKYpA5/SQewgfXDKo=

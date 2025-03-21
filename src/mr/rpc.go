@@ -25,8 +25,7 @@ type GetTaskResponse struct {
 	Id          int    // task id
 	File        string // file path
 	ReduceCount int    // reduce output count
-	MapIndex    int
-	ReduceIndex int // reduce input index
+	ReduceIndex int    // reduce input index
 	FileCount   int
 }
 
