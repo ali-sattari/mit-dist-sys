@@ -15,9 +15,4 @@
   * Workers should also get a signal that tasks are done and exit
 * Files are already split (pg-*.txt) and are passed to map tasks
 * Mappers should output to nReduce files
-
-
-### Questions
-
-* indexer adds duplicate items at reduce fase
-
+* Coordinator should wait 10s before re-assigning tasks to a new worker
