@@ -121,7 +121,14 @@ func getTask(id int) *GetTaskResponse {
 
 func updateTask(id int) *UpdateTaskResponse {
 	resp := UpdateTaskResponse{}
-	ok := call("Coordinator.UpdateTask", &UpdateTaskRequest{Id: id}, &resp)
+	ok := call(
+		"Coordinator.UpdateTask",
+		&UpdateTaskRequest{
+			TaskId:   id,
+			WorkerId: os.Getpid(),
+		},
+		&resp,
+	)
 
 	if ok {
 		// log.Printf("UpdateTask reply %d: %+v", id, resp)

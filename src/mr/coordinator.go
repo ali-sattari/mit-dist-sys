@@ -69,11 +69,10 @@ func (c *Coordinator) Ping(args *PingRequest, reply *PingResponse) error {
 }
 
 func (c *Coordinator) GetTask(args *GetTaskRequest, reply *GetTaskResponse) error {
-	// log.Printf("GetTask: start for worker %d ", args.ID)
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	// w := c.updateWorkerStatus(args.ID)
+	w := c.updateWorkerStatus(args.ID)
 
 	if c.queue.Len() > 0 {
 		// find the first unassigned task
@@ -93,8 +92,8 @@ func (c *Coordinator) GetTask(args *GetTaskRequest, reply *GetTaskResponse) erro
 		reply.ReduceCount = c.nReduce
 		reply.FileCount = len(c.files)
 
-		// t.assignedAt = time.Now()
-		// t.worker = w
+		t.assignedAt = time.Now()
+		t.worker = w
 
 		// log.Printf("GetTask: for worker %d got %+v: %+v\n", args.ID, next, c.todo[next])
 
@@ -109,13 +108,13 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskRequest, reply *UpdateTaskRespo
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	t, ok := c.todo[args.Id]
-	if ok {
-		// log.Printf("UpdateTask: remove %d from todo and add to done", args.Id)
-		c.done[args.Id] = t
-		delete(c.todo, args.Id)
+	t, ok := c.todo[args.TaskId]
+	if ok && t.worker != nil && t.worker.id == args.WorkerId {
+		// log.Printf("UpdateTask: remove %d from todo and add to done", args.TaskId)
+		c.done[args.TaskId] = t
+		delete(c.todo, args.TaskId)
 	} else {
-		log.Printf("UpdateTask: task %d not found in todo!", args.Id)
+		log.Printf("UpdateTask: task %d not found or not assigned to worker %d in todo!", args.TaskId, args.WorkerId)
 	}
 
 	reply.Okay = true
@@ -162,6 +161,25 @@ func (c *Coordinator) updateWorkerStatus(id int) *WorkerRecord {
 	return w
 }
 
+func (c *Coordinator) checkTaskStatus() {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+
+	deadline := time.Second
+	lastVaild := time.Now().Add(-deadline)
+	for id, task := range c.todo {
+		if task.worker != nil && task.assignedAt.Before(lastVaild) {
+			// log.Printf("task %d taking too long (%+v) to be processed by %+v, re-queuing", id, time.Until(task.assignedAt), task.worker)
+			if task.step == "map" {
+				c.queue.PushFront(id)
+			} else {
+				c.queue.PushBack(id)
+			}
+			c.todo[id].worker = nil
+		}
+	}
+}
+
 // start a thread that listens for RPCs from worker.go
 func (c *Coordinator) server() {
 	rpc.Register(c)
@@ -203,6 +221,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		done:    map[TaskId]*Task{},
 	}
 
+	// add tasks for map and reduce to the queue
 	for _, f := range files {
 		c.todo[c.lastTaskId] = &Task{
 			id:   c.lastTaskId,
@@ -222,6 +241,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		c.queue.PushBack(c.lastTaskId)
 		c.lastTaskId++
 	}
+
+	// loop to check task status and re-assign
+	cheker := periodicJobs(time.Millisecond*500, c.checkTaskStatus)
+	go cheker()
 
 	c.server()
 	return &c

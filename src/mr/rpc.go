@@ -30,8 +30,9 @@ type GetTaskResponse struct {
 }
 
 type UpdateTaskRequest struct {
-	Id     int    // task id
-	Result string // success, failure
+	TaskId   int
+	WorkerId int
+	Result   string // success, failure
 }
 type UpdateTaskResponse struct {
 	Okay bool
