@@ -48,6 +48,8 @@ type Coordinator struct {
 	done       map[TaskId]*Task
 }
 
+const TASK_DEADLINE = time.Second * 10
+
 // Your code here -- RPC handlers for the worker to call.
 
 func (c *Coordinator) Ping(args *PingRequest, reply *PingResponse) error {
@@ -78,7 +80,6 @@ func (c *Coordinator) GetTask(args *GetTaskRequest, reply *GetTaskResponse) erro
 		// find the first unassigned task
 		first := c.queue.Front()
 		if c.todo[first].step != "map" && !c.areMapTasksDone() {
-			log.Printf("map tasks are not done %+v\n", c.todo[first])
 			return fmt.Errorf("map tasks are not done")
 		}
 
@@ -114,7 +115,7 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskRequest, reply *UpdateTaskRespo
 		c.done[args.TaskId] = t
 		delete(c.todo, args.TaskId)
 	} else {
-		log.Printf("UpdateTask: task %d not found or not assigned to worker %d in todo!", args.TaskId, args.WorkerId)
+		// log.Printf("UpdateTask: task %d not found or not assigned to worker %d in todo! %+v", args.TaskId, args.WorkerId, t)
 	}
 
 	reply.Okay = true
@@ -165,8 +166,7 @@ func (c *Coordinator) checkTaskStatus() {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	deadline := time.Second
-	lastVaild := time.Now().Add(-deadline)
+	lastVaild := time.Now().Add(-TASK_DEADLINE)
 	for id, task := range c.todo {
 		if task.worker != nil && task.assignedAt.Before(lastVaild) {
 			// log.Printf("task %d taking too long (%+v) to be processed by %+v, re-queuing", id, time.Until(task.assignedAt), task.worker)
@@ -245,6 +245,8 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// loop to check task status and re-assign
 	cheker := periodicJobs(time.Millisecond*500, c.checkTaskStatus)
 	go cheker()
+
+	log.SetOutput(os.Stderr)
 
 	c.server()
 	return &c

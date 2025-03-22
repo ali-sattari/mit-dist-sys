@@ -33,6 +33,8 @@ func Worker(
 	mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string,
 ) {
+	log.SetOutput(os.Stderr)
+
 	sig := make(chan bool)
 	wid := os.Getpid()
 	// loop to ping
@@ -79,7 +81,7 @@ func Worker(
 			updateTask(t.Id)
 
 		default:
-			log.Printf("unsupported task type: %v\n", t)
+			// log.Printf("unsupported task type: %+v\n", t)
 		}
 	})
 	go tasker()
@@ -278,9 +280,9 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		if err == nil {
 			return true
 		}
-		log.Printf("call error on %s: %+v", sockname, err)
+		// log.Printf("call error on %s: %+v", sockname, err)
 	case <-time.After(time.Second):
-		log.Printf("call timeout on %s", sockname)
+		// log.Printf("call timeout on %s", sockname)
 	}
 
 	return false
