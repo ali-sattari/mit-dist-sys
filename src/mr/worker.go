@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -111,7 +112,7 @@ func getTask(id int) *GetTaskResponse {
 	ok := call("Coordinator.GetTask", &GetTaskRequest{ID: id}, &resp)
 
 	if ok {
-		log.Printf("getTask reply for %d: %+v", id, resp)
+		// log.Printf("getTask reply for %d: %+v", id, resp)
 		return &resp
 	}
 
@@ -168,7 +169,14 @@ func getReduceFiles(i int) []string {
 		log.Printf("getReduceFiles: error getting files %s: %v\n", pat, err)
 	}
 
-	return files
+	res := []string{}
+	for _, f := range files {
+		if !strings.Contains(f, "out") {
+			res = append(res, f)
+		}
+	}
+
+	return res
 }
 
 func writeMapResults(fileId int, buckets int, content []KeyValue) {
@@ -237,7 +245,7 @@ func writeReduceResults(buckets int, key, content string) error {
 }
 
 func getInterimFileName(m, r string) string {
-	return fmt.Sprintf("mri-%s-%s", m, r)
+	return fmt.Sprintf("mr-%s-%s", m, r)
 }
 
 func getFinalFileName(n string) string {

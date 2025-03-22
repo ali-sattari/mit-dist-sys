@@ -31,7 +31,6 @@ type Task struct {
 	step       string
 	id         int
 	file       string
-	mapId      int
 	parition   int
 	worker     *WorkerRecord
 	assignedAt time.Time
@@ -57,7 +56,7 @@ func (c *Coordinator) Ping(args *PingRequest, reply *PingResponse) error {
 
 	c.processPing(args.ID)
 
-	log.Printf("Ping: workers %d, todo %d, done %d, queue %d", len(c.workers), len(c.todo), len(c.done), c.queue.Len())
+	// log.Printf("Ping: workers %d, todo %d, done %d, queue %d", len(c.workers), len(c.todo), len(c.done), c.queue.Len())
 
 	// check if there are still tasks to be done
 	if len(c.todo) == 0 {
@@ -76,7 +75,7 @@ func (c *Coordinator) GetTask(args *GetTaskRequest, reply *GetTaskResponse) erro
 
 	// w := c.updateWorkerStatus(args.ID)
 
-	if len(c.todo) > 0 {
+	if c.queue.Len() > 0 {
 		// find the first unassigned task
 		first := c.queue.Front()
 		if c.todo[first].step != "map" && !c.areMapTasksDone() {
