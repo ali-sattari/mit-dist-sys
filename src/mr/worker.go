@@ -245,6 +245,7 @@ func writeReduceResults(buckets int, key, content string) error {
 	}
 	defer file.Close()
 
+	// TODO: atomic write by writing to a tmp file and doing a rename
 	writer := bufio.NewWriter(file)
 	_, err = writer.WriteString(fmt.Sprintf("%v %v\n", key, content))
 	if err != nil {
