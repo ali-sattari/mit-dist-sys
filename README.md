@@ -16,3 +16,10 @@
 * Files are already split (pg-*.txt) and are passed to map tasks
 * Mappers should output to nReduce files
 * Coordinator should wait 10s before re-assigning tasks to a new worker
+
+## Lab 2: Key/Value Service
+
+* A key/value server with GET and PUT operations
+* On single machine
+* Each Put operation is executed at-most-once despite network failures (via version checks)
+* Operations should be linearizable

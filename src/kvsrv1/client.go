@@ -1,6 +1,8 @@
 package kvsrv
 
 import (
+	"time"
+
 	"6.5840/kvsrv1/rpc"
 	kvtest "6.5840/kvtest1"
 	tester "6.5840/tester1"
@@ -31,9 +33,15 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 	req := rpc.GetArgs{Key: key}
 	resp := rpc.GetReply{}
 
-	ok := ck.clnt.Call(ck.server, "KVServer.Get", &req, &resp)
-	if !ok {
-		DPrintf("error in KVServer.Get rpc call")
+	retries := 0
+	for {
+		ok := ck.clnt.Call(ck.server, "KVServer.Get", &req, &resp)
+		if ok {
+			break
+		}
+
+		retries++
+		time.Sleep(time.Millisecond * 10)
 	}
 
 	return resp.Value, resp.Version, resp.Err
@@ -64,17 +72,26 @@ func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 	}
 	resp := rpc.PutReply{}
 
-	ok := ck.clnt.Call(ck.server, "KVServer.Put", &req, &resp)
-	if !ok {
-		DPrintf("error in KVServer.Put rpc call")
-	}
-	if resp.Err != "" {
-		switch resp.Err {
-		case rpc.ErrVersion:
-			// check if it is second attempt onward
-			// return maybe if so
+	retries := 0
+	for {
+		ok := ck.clnt.Call(ck.server, "KVServer.Put", &req, &resp)
+		if ok {
+			switch resp.Err {
+			case rpc.OK:
+				return rpc.OK
+			case rpc.ErrVersion:
+				if retries == 0 {
+					return rpc.ErrVersion
+				} else {
+					DPrintf("client.Put: undeterminable error (%d): %+v for %v", retries, resp, req)
+					return rpc.ErrMaybe
+				}
+			case rpc.ErrNoKey:
+				return rpc.ErrNoKey
+			}
 		}
-	}
 
-	return resp.Err
+		retries++
+		time.Sleep(time.Millisecond * 20)
+	}
 }
