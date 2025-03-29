@@ -23,3 +23,4 @@
 * On single machine
 * Each Put operation is executed at-most-once despite network failures (via version checks)
 * Operations should be linearizable
+* Retry mechanism in KV client

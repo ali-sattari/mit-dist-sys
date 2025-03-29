@@ -36,7 +36,6 @@ func MakeLock(ck kvtest.IKVClerk, l string) *Lock {
 }
 
 func (lk *Lock) Acquire() {
-
 	var v rpc.Tversion
 	free := false
 	locked := false
@@ -44,7 +43,6 @@ func (lk *Lock) Acquire() {
 	// loop until acquired
 	for !locked {
 		val, ver, err := lk.ck.Get(lk.key)
-		// log.Printf("%s: get key %s with val %s and ver %v (%s)", lk.id, lk.key, val, ver, err)
 		if err == rpc.ErrNoKey {
 			// no lock, free to make
 			v = 0
@@ -55,27 +53,39 @@ func (lk *Lock) Acquire() {
 			v = ver
 			free = true
 		}
+		if err == rpc.OK && val == lk.id {
+			// already got it!
+			lk.version = ver
+			locked = true
+		}
 
 		if free {
 			err = lk.ck.Put(lk.key, lk.id, v)
-			// log.Printf("%s: set key %s with ver %v (%s)", lk.id, lk.key, v, err)
-
 			switch err {
 			case rpc.OK:
 				lk.version = v + 1
 				locked = true
-			case rpc.ErrVersion:
-				// log.Printf("%s: error acquiring the lock, some one was faster!", lk.id)
+			case rpc.ErrVersion, rpc.ErrMaybe:
+				// log.Printf("%s: error acquiring the lock, some one was faster? %+v", lk.id, err)
 				free = false
 			}
 		}
-		time.Sleep(time.Millisecond * 10)
+		time.Sleep(time.Millisecond * 50)
 	}
 }
 
 func (lk *Lock) Release() {
-	err := lk.ck.Put(lk.key, "", lk.version)
-	if err != rpc.OK {
-		log.Printf("%s: error releasing the lock %+v", lk.id, err)
+	rt := 0
+	for {
+		err := lk.ck.Put(lk.key, "", lk.version)
+
+		switch err {
+		case rpc.OK, rpc.ErrNoKey, rpc.ErrMaybe:
+			return
+		case rpc.ErrVersion:
+			log.Printf("%s: error releasing the lock (%d) v%+v: %+v", lk.id, rt, lk.version, err)
+		}
+		rt++
+		time.Sleep(time.Millisecond * 50)
 	}
 }

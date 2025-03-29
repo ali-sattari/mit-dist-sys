@@ -79,6 +79,10 @@ func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 			switch resp.Err {
 			case rpc.OK:
 				return rpc.OK
+
+			case rpc.ErrNoKey:
+				return rpc.ErrNoKey
+
 			case rpc.ErrVersion:
 				if retries == 0 {
 					return rpc.ErrVersion
@@ -86,8 +90,6 @@ func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 					DPrintf("client.Put: undeterminable error (%d): %+v for %v", retries, resp, req)
 					return rpc.ErrMaybe
 				}
-			case rpc.ErrNoKey:
-				return rpc.ErrNoKey
 			}
 		}
 
