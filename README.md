@@ -24,3 +24,11 @@
 * Each Put operation is executed at-most-once despite network failures (via version checks)
 * Operations should be linearizable
 * Retry mechanism in KV client
+
+## Lab 3: Raft
+
+### 3A: Leader Election
+
+* Need and internal loop for node state management
+* To use channels or locks?
+* Heartbeat through light-weight AppendEntry RPC
