@@ -1,46 +1,69 @@
 package raft
 
-import "time"
+import (
+	"time"
+)
 
 func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	Logger.Debug("append entry request",
+		"server", rf.me,
+		"args", args)
+
 	rf.lastBeat = time.Now()
+	rf.votedFor = nil
 
 	// bad cases
 	reply.Term = rf.currentTerm
 	if rf.currentTerm > args.Term { // 5.1
+		Logger.Debug("rejecting append entry from outdated leader",
+			"server", rf.me,
+			"current_term", rf.currentTerm,
+			"leader_term", args.Term)
 		reply.Success = false
 		return
 	}
 
-	if l, ok := rf.logs[args.PrevLogIndex]; !ok || l.term != args.PrevLogTerm { // 5.3
+	if l, ok := rf.logs[args.PrevLogIndex]; !ok || l.Term != args.PrevLogTerm { // 5.3
+		Logger.Debug("rejecting append entry due to log inconsistency",
+			"server", rf.me,
+			"index", args.PrevLogIndex)
 		reply.Success = false
 		return
 	}
 
 	// good case
 	if rf.nodeState == Candidate {
+		Logger.Debug("stepping down from candidate to follower",
+			"server", rf.me,
+			"leader", args.LeaderId)
 		rf.transition(Follower)
 	}
 
+	// apply entries
 	for _, e := range args.Entries {
-		if l, ok := rf.logs[e.id]; ok {
-			if l.term != e.term { // 5.3
-				rf.deleteLogEntries(e.id)
+		if l, ok := rf.logs[e.Id]; ok {
+			if l.Term != e.Term { // 5.3
+				Logger.Debug("deleting conflicting log entries",
+					"server", rf.me,
+					"from_index", e.Id)
+				rf.deleteLogEntries(e.Id)
 			}
 		}
 
-		rf.logs[e.id] = e
-		rf.logIndexes = append(rf.logIndexes, e.id)
+		rf.logs[e.Id] = e
+		rf.logIndexes = append(rf.logIndexes, e.Id)
 	}
+
+	// update commit index
 	if rf.commitIndex < args.LeaderCommit {
 		li := rf.logIndexes[len(rf.logIndexes)-1]
 		rf.commitIndex = min(args.LeaderCommit, li)
 	}
-	rf.currentTerm = args.Term
 
+	rf.currentTerm = args.Term
 	reply.Term = rf.currentTerm
 	reply.Success = true
 }
@@ -50,27 +73,47 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	Logger.Debug("vote request",
+		"server", rf.me,
+		"args", args)
+
 	rf.lastBeat = time.Now()
 
-	reply.Term = rf.currentTerm
-
 	if rf.currentTerm > args.Term { // out-of-date candidate
+		Logger.Debug("rejecting vote request from outdated candidate",
+			"server", rf.me,
+			"current_term", rf.currentTerm,
+			"candidate_term", args.Term)
+		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
 		return
 	}
+
 	if rf.currentTerm < args.Term { // got a higher term!
+		Logger.Debug("stepping down due to higher term",
+			"server", rf.me,
+			"current_term", rf.currentTerm,
+			"new_term", args.Term,
+			"candidate", args.CandidateId)
 		rf.currentTerm = args.Term
+		rf.votedFor = nil
 		rf.transition(Follower)
 	}
 
+	reply.Term = rf.currentTerm
 	if (rf.votedFor == nil || rf.votedFor == &args.CandidateId) &&
 		(rf.lastApplied <= args.LastLogIndex) {
+		Logger.Debug("granting vote to candidate",
+			"server", rf.me,
+			"candidate", args.CandidateId)
 		reply.VoteGranted = true
 		rf.votedFor = &args.CandidateId
 	} else {
+		Logger.Debug("rejecting vote request",
+			"server", rf.me,
+			"candidate", args.CandidateId)
 		reply.VoteGranted = false
 	}
-
 }
 
 func (rf *Raft) deleteLogEntries(from uint) {

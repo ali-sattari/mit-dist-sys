@@ -9,6 +9,7 @@ package raft
 import (
 	//	"bytes"
 
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,6 +38,7 @@ type Raft struct {
 
 	// channels
 	voteCh chan RequestVoteReply
+	beatCh chan uint
 
 	// persistent state: all servers
 	currentTerm uint
@@ -54,9 +56,9 @@ type Raft struct {
 }
 
 type LogEntry struct {
-	id      uint
-	term    uint
-	command any
+	Id      uint
+	Term    uint
+	Command any
 }
 
 // return currentTerm and whether this server
@@ -184,12 +186,25 @@ func Make(
 	rf.me = uint(me)
 
 	// TODO: Your initialization code here (3A, 3B, 3C).
+	rf.logs = make(map[uint]LogEntry)
+	rf.logIndexes = []uint{}
+	rf.nextIndex = make(map[uint]uint)
+	rf.matchIndex = make(map[uint]uint)
+	rf.nodeState = Follower
+	rf.currentTerm = 0
+	rf.votedFor = nil
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+	rf.voteCh = make(chan RequestVoteReply)
+	rf.beatCh = make(chan uint)
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
+	SetLogLevel(slog.LevelError)
 	// start ticker goroutine to start elections
 	go rf.ticker()
+	go rf.receiveBeats()
 
 	return rf
 }

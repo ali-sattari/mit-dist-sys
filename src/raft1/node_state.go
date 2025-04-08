@@ -11,11 +11,13 @@ type NodeState string
 
 const (
 	Follower  NodeState = "follower"
-	Candidate           = "candidate"
-	Leader              = "leader"
+	Candidate NodeState = "candidate"
+	Leader    NodeState = "leader"
 )
 
-const ElectionTimeout time.Duration = time.Millisecond * 500
+const electionTimeout = 300 // milliseconds
+const stateLoopTime = time.Nanosecond * 1000
+const heartbeatInterval = time.Millisecond * 100
 
 // Transition table
 var validTransitions = map[NodeState][]NodeState{
@@ -24,27 +26,25 @@ var validTransitions = map[NodeState][]NodeState{
 	Leader:    {Follower},
 }
 
+// needs to be called with rf.mu locked
 func (rf *Raft) transition(newState NodeState) error {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	if newState == rf.nodeState {
+		return nil
+	}
 
-	// Validate transition
+	// validate transition
 	if !slices.Contains(validTransitions[rf.nodeState], newState) {
+		Logger.Error("invalid state transition",
+			"server", rf.me,
+			"from", rf.nodeState,
+			"to", newState)
 		return fmt.Errorf("invalid transition %s -> %s", rf.nodeState, newState)
 	}
 
-	// State-specific cleanup/init
-	switch newState {
-	case Leader:
-		// initialize state
-		// start heartbeat ticker
-	case Candidate:
-		// incr term
-		// vote for self
-		// send RequestVote RPCs
-	case Follower:
-		// start election/comms timeout timer
-	}
+	Logger.Debug("state transition",
+		"server", rf.me,
+		"from", rf.nodeState,
+		"to", newState)
 
 	rf.nodeState = newState
 	return nil
@@ -53,17 +53,16 @@ func (rf *Raft) transition(newState NodeState) error {
 // State machine core
 func (rf *Raft) ticker() {
 	for !rf.killed() {
-		// TODO: Your code here (3A)
-		// Check if a leader election should be started.
+		rf.mu.Lock()
+
 		switch rf.nodeState {
-		// Rlock or switch to channels?
 		case Follower:
-			if rf.electionTimedout() {
+			if rf.isElectionTimedout() {
 				rf.transition(Candidate)
 			}
 
 		case Candidate:
-			if rf.votedFor == nil || rf.electionTimedout() {
+			if rf.needsElection() {
 				rf.startElection()
 				go rf.waitForVotes()
 			}
@@ -72,12 +71,34 @@ func (rf *Raft) ticker() {
 			rf.sendHeartbeat()
 		}
 
-		// pause for a random amount of time between 50 and 350 milliseconds.
-		ms := 50 + (rand.Int63() % 300)
-		time.Sleep(time.Duration(ms) * time.Millisecond)
+		rf.mu.Unlock()
+		time.Sleep(stateLoopTime)
 	}
 }
 
-func (rf *Raft) electionTimedout() bool {
-	return rf.lastBeat.Before(time.Now().Add(-ElectionTimeout))
+func (rf *Raft) receiveBeats() {
+	for range rf.beatCh {
+		rf.mu.Lock()
+		rf.lastBeat = time.Now()
+		rf.mu.Unlock()
+	}
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) isElectionTimedout() bool {
+	// the randomness added for election time checking
+	r := 50 + (rand.Int63() % electionTimeout)
+	t := time.Duration(r) * time.Millisecond
+	return rf.lastBeat.Before(time.Now().Add(-t))
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) increaseTerm(newTerm uint) {
+	rf.currentTerm = newTerm
+	rf.votedFor = nil
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) needsElection() bool {
+	return rf.votedFor == nil || rf.isElectionTimedout()
 }

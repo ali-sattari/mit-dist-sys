@@ -30,5 +30,5 @@
 ### 3A: Leader Election
 
 * Need and internal loop for node state management
-* To use channels or locks?
 * Heartbeat through light-weight AppendEntry RPC
+* Each term can have at most one leader -> why candidates increment term at start of new election round
