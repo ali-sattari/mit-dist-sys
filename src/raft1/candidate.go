@@ -48,7 +48,7 @@ func (rf *Raft) waitForVotes() {
 		rf.mu.Lock()
 		term := rf.currentTerm
 
-		Logger.Debug("waiting for votes",
+		rf.logger.Debug("waiting for votes",
 			"server", rf.me,
 			"term", term,
 			"needed", need,
@@ -58,7 +58,7 @@ func (rf *Raft) waitForVotes() {
 		if term == r.Term && r.VoteGranted {
 			votes++
 			if votes >= need {
-				Logger.Debug("election won",
+				rf.logger.Debug("election won",
 					"server", rf.me,
 					"term", term,
 					"votes", votes)
@@ -70,7 +70,7 @@ func (rf *Raft) waitForVotes() {
 
 		// step down if we get a higher term
 		if term < r.Term {
-			Logger.Debug("stepping down due to higher term",
+			rf.logger.Debug("stepping down due to higher term",
 				"server", rf.me,
 				"current_term", term,
 				"new_term", r.Term)

@@ -34,14 +34,14 @@ func (rf *Raft) transition(newState NodeState) error {
 
 	// validate transition
 	if !slices.Contains(validTransitions[rf.nodeState], newState) {
-		Logger.Error("invalid state transition",
+		rf.logger.Error("invalid state transition",
 			"server", rf.me,
 			"from", rf.nodeState,
 			"to", newState)
 		return fmt.Errorf("invalid transition %s -> %s", rf.nodeState, newState)
 	}
 
-	Logger.Debug("state transition",
+	rf.logger.Debug("state transition",
 		"server", rf.me,
 		"from", rf.nodeState,
 		"to", newState)

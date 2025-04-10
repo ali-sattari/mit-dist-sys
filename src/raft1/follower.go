@@ -8,7 +8,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	Logger.Debug("append entry request",
+	rf.logger.Debug("append entry request",
 		"server", rf.me,
 		"args", args)
 
@@ -18,7 +18,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	// bad cases
 	reply.Term = rf.currentTerm
 	if rf.currentTerm > args.Term { // 5.1
-		Logger.Debug("rejecting append entry from outdated leader",
+		rf.logger.Debug("rejecting append entry from outdated leader",
 			"server", rf.me,
 			"current_term", rf.currentTerm,
 			"leader_term", args.Term)
@@ -27,7 +27,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	}
 
 	if l, ok := rf.logs[args.PrevLogIndex]; !ok || l.Term != args.PrevLogTerm { // 5.3
-		Logger.Debug("rejecting append entry due to log inconsistency",
+		rf.logger.Debug("rejecting append entry due to log inconsistency",
 			"server", rf.me,
 			"index", args.PrevLogIndex)
 		reply.Success = false
@@ -36,7 +36,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 
 	// good case
 	if rf.nodeState == Candidate {
-		Logger.Debug("stepping down from candidate to follower",
+		rf.logger.Debug("stepping down from candidate to follower",
 			"server", rf.me,
 			"leader", args.LeaderId)
 		rf.transition(Follower)
@@ -46,7 +46,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	for _, e := range args.Entries {
 		if l, ok := rf.logs[e.Id]; ok {
 			if l.Term != e.Term { // 5.3
-				Logger.Debug("deleting conflicting log entries",
+				rf.logger.Debug("deleting conflicting log entries",
 					"server", rf.me,
 					"from_index", e.Id)
 				rf.deleteLogEntries(e.Id)
@@ -73,14 +73,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	Logger.Debug("vote request",
+	rf.logger.Debug("vote request",
 		"server", rf.me,
 		"args", args)
 
 	rf.lastBeat = time.Now()
 
 	if rf.currentTerm > args.Term { // out-of-date candidate
-		Logger.Debug("rejecting vote request from outdated candidate",
+		rf.logger.Debug("rejecting vote request from outdated candidate",
 			"server", rf.me,
 			"current_term", rf.currentTerm,
 			"candidate_term", args.Term)
@@ -90,7 +90,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	if rf.currentTerm < args.Term { // got a higher term!
-		Logger.Debug("stepping down due to higher term",
+		rf.logger.Debug("stepping down due to higher term",
 			"server", rf.me,
 			"current_term", rf.currentTerm,
 			"new_term", args.Term,
@@ -103,13 +103,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	reply.Term = rf.currentTerm
 	if (rf.votedFor == nil || rf.votedFor == &args.CandidateId) &&
 		(rf.lastApplied <= args.LastLogIndex) {
-		Logger.Debug("granting vote to candidate",
+		rf.logger.Debug("granting vote to candidate",
 			"server", rf.me,
 			"candidate", args.CandidateId)
 		reply.VoteGranted = true
 		rf.votedFor = &args.CandidateId
 	} else {
-		Logger.Debug("rejecting vote request",
+		rf.logger.Debug("rejecting vote request",
 			"server", rf.me,
 			"candidate", args.CandidateId)
 		reply.VoteGranted = false

@@ -10,6 +10,7 @@ import (
 	//	"bytes"
 
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,7 +32,7 @@ type Raft struct {
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-
+	logger *slog.Logger
 	// node state stuff
 	nodeState NodeState
 	lastBeat  time.Time
@@ -201,10 +202,17 @@ func Make(
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
-	SetLogLevel(slog.LevelError)
+	rf.setLogLevel(slog.LevelError)
+
 	// start ticker goroutine to start elections
 	go rf.ticker()
 	go rf.receiveBeats()
 
 	return rf
+}
+
+func (rf *Raft) setLogLevel(level slog.Level) {
+	rf.logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	}))
 }
