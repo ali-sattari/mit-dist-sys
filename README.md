@@ -32,3 +32,9 @@
 * Need and internal loop for node state management
 * Heartbeat through light-weight AppendEntry RPC
 * Each term can have at most one leader -> why candidates increment term at start of new election round
+
+### 3B: Log
+
+* Send each committed entry to applyChan for the application layer
+  * A log entry is committed once the leader that created the entry has replicated it on a majority of the servers
+* Start log at index 0, because easy

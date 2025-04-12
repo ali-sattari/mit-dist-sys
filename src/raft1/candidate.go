@@ -15,10 +15,7 @@ func (rf *Raft) startElection() {
 	rf.votedFor = &rf.me
 	rf.lastBeat = time.Now()
 
-	term := rf.currentTerm
-	candidateId := rf.me
-	lastApplied := rf.lastApplied
-	lastLogTerm := rf.logs[lastApplied].Term
+	lastLogTerm := rf.logs[rf.lastApplied].Term
 
 	for i := range rf.peers {
 		if i == int(rf.me) {
@@ -26,16 +23,16 @@ func (rf *Raft) startElection() {
 		}
 
 		a := RequestVoteArgs{
-			Term:         term,
-			CandidateId:  candidateId,
-			LastLogIndex: lastApplied,
+			Term:         rf.currentTerm,
+			CandidateId:  rf.me,
+			LastLogIndex: rf.lastApplied,
 			LastLogTerm:  lastLogTerm,
 		}
 		r := RequestVoteReply{}
 
 		go func(server int) {
 			rf.sendRequestVote(server, &a, &r)
-			rf.voteCh <- r
+			rf.voteReplyCh <- r
 		}(i)
 	}
 }
@@ -44,23 +41,20 @@ func (rf *Raft) waitForVotes() {
 	votes := 1 // Start with 1 vote (self)
 	need := int(len(rf.peers)/2) + 1
 
-	for r := range rf.voteCh {
+	for r := range rf.voteReplyCh {
 		rf.mu.Lock()
-		term := rf.currentTerm
 
 		rf.logger.Debug("waiting for votes",
-			"server", rf.me,
-			"term", term,
+			"term", rf.currentTerm,
 			"needed", need,
 			"current", votes,
 			"reply", r)
 
-		if term == r.Term && r.VoteGranted {
+		if rf.currentTerm == r.Term && r.VoteGranted {
 			votes++
 			if votes >= need {
 				rf.logger.Debug("election won",
-					"server", rf.me,
-					"term", term,
+					"term", rf.currentTerm,
 					"votes", votes)
 				rf.transition(Leader)
 				rf.mu.Unlock()
@@ -69,10 +63,9 @@ func (rf *Raft) waitForVotes() {
 		}
 
 		// step down if we get a higher term
-		if term < r.Term {
+		if rf.currentTerm < r.Term {
 			rf.logger.Debug("stepping down due to higher term",
-				"server", rf.me,
-				"current_term", term,
+				"current_term", rf.currentTerm,
 				"new_term", r.Term)
 			rf.increaseTerm(r.Term)
 			rf.transition(Follower)

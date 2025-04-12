@@ -11,6 +11,7 @@ import (
 
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,12 +22,14 @@ import (
 	tester "6.5840/tester1"
 )
 
+var LOG_LEVEL slog.Level = slog.LevelError
+
 // A Go object implementing a single Raft peer.
 type Raft struct {
 	mu        sync.RWMutex        // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
 	persister *tester.Persister   // Object to hold this peer's persisted state
-	me        uint                // this peer's index into peers[]
+	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
 	// Your data here (3A, 3B, 3C).
@@ -34,26 +37,28 @@ type Raft struct {
 	// state a Raft server must maintain.
 	logger *slog.Logger
 	// node state stuff
-	nodeState NodeState
-	lastBeat  time.Time
+	nodeRole NodeRole
+	lastBeat time.Time
 
 	// channels
-	voteCh chan RequestVoteReply
-	beatCh chan uint
+	voteReplyCh   chan RequestVoteReply
+	beatCh        chan uint
+	appendReplyCh chan AppendEntryResult
+	applyCh       chan raftapi.ApplyMsg
 
 	// persistent state: all servers
 	currentTerm uint
-	votedFor    *uint
+	votedFor    *int
 	logs        map[uint]LogEntry
 	logIndexes  []uint
 
 	// volatile state: all servers
-	commitIndex uint
-	lastApplied uint
+	commitIndex uint // index of highest log entry known to be committed
+	lastApplied uint // index of highest log entry applied to state machine
 
 	// volatile state: leader
-	nextIndex  map[uint]uint
-	matchIndex map[uint]uint
+	nextIndex  map[int]uint // for each server, index of the next log entry to send to that server
+	matchIndex map[int]uint // for each server, index of highest log entry known to be replicated on server
 }
 
 type LogEntry struct {
@@ -68,7 +73,7 @@ func (rf *Raft) GetState() (int, bool) {
 	rf.mu.RLock()
 	defer rf.mu.RUnlock()
 
-	return int(rf.currentTerm), rf.nodeState == Leader
+	return int(rf.currentTerm), rf.nodeRole == Leader
 }
 
 // save Raft's persistent state to stable storage,
@@ -138,13 +143,15 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // term. the third return value is true if this server believes it is
 // the leader.
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
-
 	// Your code here (3B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-	return index, term, isLeader
+	if rf.nodeRole != Leader {
+		return 0, 0, false
+	}
+
+	return int(rf.sendCommand(command)), int(rf.currentTerm), true
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
@@ -184,25 +191,32 @@ func Make(
 	rf := &Raft{}
 	rf.peers = peers
 	rf.persister = persister
-	rf.me = uint(me)
+	rf.me = me
 
 	// TODO: Your initialization code here (3A, 3B, 3C).
-	rf.logs = make(map[uint]LogEntry)
-	rf.logIndexes = []uint{}
-	rf.nextIndex = make(map[uint]uint)
-	rf.matchIndex = make(map[uint]uint)
-	rf.nodeState = Follower
+	rf.logs = map[uint]LogEntry{0: {Id: 0, Command: nil, Term: 0}}
+	rf.logIndexes = []uint{0}
+	rf.nodeRole = Follower
 	rf.currentTerm = 0
 	rf.votedFor = nil
 	rf.commitIndex = 0
 	rf.lastApplied = 0
-	rf.voteCh = make(chan RequestVoteReply)
+	rf.voteReplyCh = make(chan RequestVoteReply)
 	rf.beatCh = make(chan uint)
+	rf.appendReplyCh = make(chan AppendEntryResult)
+	rf.applyCh = applyCh
+	rf.nextIndex = make(map[int]uint)
+	rf.matchIndex = make(map[int]uint)
+
+	for i := range peers {
+		rf.nextIndex[i] = 0
+		rf.matchIndex[i] = 0
+	}
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
-	rf.setLogLevel(slog.LevelError)
+	rf.setupLogging()
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
@@ -211,8 +225,19 @@ func Make(
 	return rf
 }
 
-func (rf *Raft) setLogLevel(level slog.Level) {
+func (rf *Raft) setupLogging() {
 	rf.logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: level,
-	}))
+		Level:     LOG_LEVEL,
+		AddSource: true,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.SourceKey {
+				source := a.Value.Any().(*slog.Source)
+				source.File = filepath.Base(source.File)
+			}
+			return a
+		},
+	})).With(
+		"server", rf.me,
+		"role", rf.nodeRole,
+	)
 }

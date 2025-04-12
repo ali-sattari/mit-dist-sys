@@ -7,46 +7,46 @@ import (
 	"time"
 )
 
-type NodeState string
+type NodeRole string
 
 const (
-	Follower  NodeState = "follower"
-	Candidate NodeState = "candidate"
-	Leader    NodeState = "leader"
+	Follower  NodeRole = "follower"
+	Candidate NodeRole = "candidate"
+	Leader    NodeRole = "leader"
 )
 
 const electionTimeout = 300 // milliseconds
-const stateLoopTime = time.Nanosecond * 1000
+const stateLoopTime = time.Millisecond * 10
 const heartbeatInterval = time.Millisecond * 100
 
 // Transition table
-var validTransitions = map[NodeState][]NodeState{
+var validTransitions = map[NodeRole][]NodeRole{
 	Follower:  {Candidate},
 	Candidate: {Follower, Leader},
 	Leader:    {Follower},
 }
 
 // needs to be called with rf.mu locked
-func (rf *Raft) transition(newState NodeState) error {
-	if newState == rf.nodeState {
+func (rf *Raft) transition(newState NodeRole) error {
+	if newState == rf.nodeRole {
 		return nil
 	}
 
 	// validate transition
-	if !slices.Contains(validTransitions[rf.nodeState], newState) {
+	if !slices.Contains(validTransitions[rf.nodeRole], newState) {
 		rf.logger.Error("invalid state transition",
-			"server", rf.me,
-			"from", rf.nodeState,
+			"from", rf.nodeRole,
 			"to", newState)
-		return fmt.Errorf("invalid transition %s -> %s", rf.nodeState, newState)
+		return fmt.Errorf("invalid transition %s -> %s", rf.nodeRole, newState)
 	}
 
 	rf.logger.Debug("state transition",
-		"server", rf.me,
-		"from", rf.nodeState,
+		"from", rf.nodeRole,
 		"to", newState)
 
-	rf.nodeState = newState
+	rf.nodeRole = newState
+	rf.setupLogging() // dirty trick, but hey it works
+
 	return nil
 }
 
@@ -55,7 +55,7 @@ func (rf *Raft) ticker() {
 	for !rf.killed() {
 		rf.mu.Lock()
 
-		switch rf.nodeState {
+		switch rf.nodeRole {
 		case Follower:
 			if rf.isElectionTimedout() {
 				rf.transition(Candidate)
@@ -69,6 +69,8 @@ func (rf *Raft) ticker() {
 
 		case Leader:
 			rf.sendHeartbeat()
+			go rf.waitForAppendReply()
+			// TODO: set nextIndex to leader's last index+1
 		}
 
 		rf.mu.Unlock()
