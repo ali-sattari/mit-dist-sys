@@ -9,6 +9,8 @@ package raft
 import (
 	//	"bytes"
 
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -59,12 +61,6 @@ type Raft struct {
 	// volatile state: leader
 	nextIndex  map[int]uint // for each server, index of the next log entry to send to that server
 	matchIndex map[int]uint // for each server, index of highest log entry known to be replicated on server
-}
-
-type LogEntry struct {
-	Id      uint
-	Term    uint
-	Command any
 }
 
 // return currentTerm and whether this server
@@ -226,8 +222,8 @@ func Make(
 }
 
 func (rf *Raft) setupLogging() {
-	rf.logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level:     LOG_LEVEL,
+	rf.logger = slog.New(slog.NewTextHandler(getLogOutputPath(rf.me), &slog.HandlerOptions{
+		Level:     getLogLevel(),
 		AddSource: true,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.SourceKey {
@@ -240,4 +236,26 @@ func (rf *Raft) setupLogging() {
 		"server", rf.me,
 		"role", rf.nodeRole,
 	)
+}
+
+func getLogLevel() slog.Level {
+	var level slog.Level
+	err := level.UnmarshalText([]byte(os.Getenv("LOG_LEVEL")))
+	if err != nil {
+		return LOG_LEVEL
+	}
+	return level
+}
+
+func getLogOutputPath(server int) io.Writer {
+	logPath := os.Getenv("LOG_FILE_NAME")
+	if logPath == "" {
+		return os.Stderr
+	}
+
+	file, err := os.OpenFile(fmt.Sprintf("%s-%d.log", logPath, server), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		panic(err)
+	}
+	return file
 }

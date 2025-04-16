@@ -1,5 +1,7 @@
 package raft
 
+import "fmt"
+
 type AppendEntryArgs struct {
 	Term         uint
 	LeaderId     int
@@ -15,9 +17,9 @@ type AppendEntryReply struct {
 }
 
 type AppendEntryResult struct {
-	server   int
-	entries  []LogEntry
-	response AppendEntryReply
+	Server   int
+	Entries  []LogEntry
+	Response AppendEntryReply
 }
 
 type RequestVoteArgs struct {
@@ -32,4 +34,23 @@ type RequestVoteReply struct {
 	// Your data here (3A).
 	Term        uint
 	VoteGranted bool
+}
+
+type LogEntry struct {
+	Id      uint
+	Term    uint
+	Command any
+}
+
+func (l LogEntry) String() string {
+	var c string
+	if l.Command != nil {
+		c = truncateWithEllipsis(l.Command, 11)
+	}
+	return fmt.Sprintf(
+		"Log{Id:%d, Term:%d, Cmd:%s}",
+		l.Id,
+		l.Term,
+		c,
+	)
 }

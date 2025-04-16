@@ -19,25 +19,7 @@ func (rf *Raft) sendHeartbeat() {
 		return
 	}
 
-	for i := range rf.peers {
-		if i == int(rf.me) {
-			continue
-		}
-
-		prevLogIndex := rf.matchIndex[i]
-		a := AppendEntryArgs{
-			Term:         rf.currentTerm,
-			LeaderId:     rf.me,
-			PrevLogIndex: prevLogIndex,
-			PrevLogTerm:  rf.logs[prevLogIndex].Term,
-			LeaderCommit: rf.commitIndex,
-		}
-		r := AppendEntryReply{}
-
-		go func(server int) {
-			rf.sendAppendEntry(server, &a, &r)
-		}(i)
-	}
+	rf.sendLogEntry([]LogEntry{})
 
 	rf.lastBeat = time.Now()
 }
@@ -58,39 +40,47 @@ func (rf *Raft) sendCommand(cmd any) uint {
 }
 
 // needs to be called with rf.mu locked
+func (rf *Raft) makeAppendEntryArgs(peer int, entries []LogEntry) AppendEntryArgs {
+	prevLogIndex := rf.matchIndex[peer]
+	return AppendEntryArgs{
+		Term:         rf.currentTerm,
+		LeaderId:     rf.me,
+		PrevLogIndex: prevLogIndex,
+		PrevLogTerm:  rf.logs[prevLogIndex].Term,
+		LeaderCommit: rf.commitIndex,
+		Entries:      entries,
+	}
+}
+
+// needs to be called with rf.mu locked
 func (rf *Raft) sendLogEntry(entries []LogEntry) {
 	for i := range rf.peers {
 		if i == rf.me {
 			continue
 		}
 
-		prevLogIndex := rf.matchIndex[i]
-		a := AppendEntryArgs{
-			Term:         rf.currentTerm,
-			LeaderId:     rf.me,
-			PrevLogIndex: prevLogIndex,
-			PrevLogTerm:  rf.logs[prevLogIndex].Term,
-			LeaderCommit: rf.commitIndex,
-			Entries:      entries,
-		}
+		a := rf.makeAppendEntryArgs(i, entries)
 		r := AppendEntryReply{}
 
-		rf.nextIndex[i] = entries[len(entries)-1].Id
+		// if not heartbeat
+		if len(entries) > 0 {
+			rf.nextIndex[i] = entries[len(entries)-1].Id
 
-		rf.logger.Debug(fmt.Sprintf("sending AppendEntry to %d", i),
-			"nextIndex", rf.nextIndex[i],
-			"matchIndex", rf.matchIndex[i],
-		)
+			rf.logger.Debug(fmt.Sprintf("sending AppendEntry to %d", i),
+				"nextIndex", rf.nextIndex[i],
+				"matchIndex", rf.matchIndex[i],
+			)
+		}
 
 		go func(server int) {
 			if ok := rf.sendAppendEntry(server, &a, &r); ok {
 				rf.appendReplyCh <- AppendEntryResult{
-					server:   server,
-					entries:  entries,
-					response: r,
+					Server:   server,
+					Entries:  entries,
+					Response: r,
 				}
 			} else {
-				rf.logger.Error("error sending append entry rpc",
+				rf.logger.Debug("error sending append entry rpc",
 					"args", a,
 					"entries", entries,
 				)
@@ -111,19 +101,19 @@ func (rf *Raft) waitForAppendReply() {
 			"reply", r)
 
 		// step down if we get a higher term
-		if rf.currentTerm < r.response.Term {
+		if rf.currentTerm < r.Response.Term {
 			rf.logger.Debug("stepping down due to higher term",
 				"current_term", rf.currentTerm,
-				"new_term", r.response.Term)
-			rf.increaseTerm(r.response.Term)
+				"new_term", r.Response.Term)
+			rf.increaseTerm(r.Response.Term)
 			rf.transition(Follower)
 			rf.mu.Unlock()
 			return
 		}
 
-		if r.response.Success {
-			for _, e := range r.entries {
-				rf.matchIndex[r.server] = e.Id
+		if r.Response.Success {
+			for _, e := range r.Entries {
+				rf.matchIndex[r.Server] = e.Id
 				have[e.Id]++
 
 				if !sent[e.Id] && have[e.Id] >= need {

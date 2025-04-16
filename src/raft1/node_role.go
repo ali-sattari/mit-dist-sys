@@ -16,7 +16,7 @@ const (
 )
 
 const electionTimeout = 300 // milliseconds
-const stateLoopTime = time.Millisecond * 10
+const stateLoopInterval = time.Millisecond * 10
 const heartbeatInterval = time.Millisecond * 100
 
 // Transition table
@@ -74,7 +74,7 @@ func (rf *Raft) ticker() {
 		}
 
 		rf.mu.Unlock()
-		time.Sleep(stateLoopTime)
+		time.Sleep(stateLoopInterval)
 	}
 }
 

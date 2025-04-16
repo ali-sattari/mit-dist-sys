@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"log/slog"
 	"time"
 
 	"6.5840/raftapi"
@@ -94,6 +95,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	defer rf.mu.Unlock()
 
 	rf.logger.Debug("vote request",
+		"term", rf.currentTerm,
 		"args", args)
 
 	rf.lastBeat = time.Now()
@@ -107,14 +109,15 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	if rf.nodeRole == Candidate && rf.currentTerm < args.Term { // got a higher term!
-		rf.logger.Debug("stepping down due to higher term",
-			"current_term", rf.currentTerm,
-			"new_term", args.Term,
-			"candidate", args.CandidateId)
-		rf.currentTerm = args.Term
-		rf.votedFor = nil
-		rf.transition(Follower)
+	if rf.currentTerm < args.Term { // got a higher term!
+		if rf.nodeRole != Follower {
+			rf.logger.Debug("stepping down due to higher term",
+				"current_term", rf.currentTerm,
+				"new_term", args.Term,
+				"candidate", args.CandidateId)
+			rf.transition(Follower)
+		}
+		rf.increaseTerm(args.Term)
 	}
 
 	reply.Term = rf.currentTerm
@@ -126,7 +129,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.votedFor = &args.CandidateId
 	} else {
 		rf.logger.Debug("rejecting vote request",
-			"votedFor", rf.votedFor,
+			"votedFor", slog.AnyValue(rf.votedFor),
 			"candidate", args.CandidateId)
 		reply.VoteGranted = false
 	}
