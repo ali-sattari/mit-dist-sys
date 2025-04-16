@@ -15,7 +15,8 @@ const (
 	Leader    NodeRole = "leader"
 )
 
-const electionTimeout = 300 // milliseconds
+const electionTimeout = 250 // milliseconds
+const electionJitter = 100  // milliseconds
 const stateLoopInterval = time.Millisecond * 10
 const heartbeatInterval = time.Millisecond * 100
 
@@ -58,6 +59,10 @@ func (rf *Raft) ticker() {
 		switch rf.nodeRole {
 		case Follower:
 			if rf.isElectionTimedout() {
+				rf.logger.Debug("election time out",
+					"lastBeat", time.Until(rf.lastBeat),
+					"term", rf.currentTerm,
+				)
 				rf.transition(Candidate)
 			}
 
@@ -89,7 +94,7 @@ func (rf *Raft) receiveBeats() {
 // needs to be called with rf.mu locked
 func (rf *Raft) isElectionTimedout() bool {
 	// the randomness added for election time checking
-	r := 50 + (rand.Int63() % electionTimeout)
+	r := electionTimeout + (rand.Int63() % electionJitter)
 	t := time.Duration(r) * time.Millisecond
 	return rf.lastBeat.Before(time.Now().Add(-t))
 }

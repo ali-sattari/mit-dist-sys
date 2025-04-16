@@ -1,7 +1,7 @@
 package raft
 
 import (
-	"log/slog"
+	"fmt"
 	"time"
 
 	"6.5840/raftapi"
@@ -85,7 +85,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.logger.Debug("processed append entry",
 		"commitIndex", rf.commitIndex,
 		"lastApplied", rf.lastApplied,
-		"logs", rf.logs,
 		"logIndexs", rf.logIndexes)
 }
 
@@ -128,8 +127,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = true
 		rf.votedFor = &args.CandidateId
 	} else {
+		var vf string
+		if rf.votedFor != nil {
+			vf = fmt.Sprintf("%v", *rf.votedFor)
+		}
 		rf.logger.Debug("rejecting vote request",
-			"votedFor", slog.AnyValue(rf.votedFor),
+			"votedFor", vf,
 			"candidate", args.CandidateId)
 		reply.VoteGranted = false
 	}
