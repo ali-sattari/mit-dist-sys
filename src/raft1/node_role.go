@@ -61,14 +61,11 @@ func (rf *Raft) transition(newState NodeRole) error {
 	// role specific work
 	switch newState {
 	case Follower:
-		// what?
+		// anything?
 	case Candidate:
-		// TODO: end the go routine?
-		go rf.waitForVotes()
+		// anything?
 	case Leader:
 		rf.setFollowerIndexes()
-		// TODO: end the go routine?
-		go rf.receiveAppendReply()
 	}
 
 	rf.nodeRole = newState

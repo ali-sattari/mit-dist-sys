@@ -55,7 +55,7 @@ func (rf *Raft) waitForVotes() {
 		rf.mu.Lock()
 
 		if rf.nodeRole != Candidate {
-			rf.logger.Warn("got vote reply, not candidate anymore",
+			rf.logger.Debug("got vote reply, not candidate anymore",
 				"have", votes,
 				"reply", r)
 			rf.mu.Unlock()

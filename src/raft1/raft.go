@@ -196,6 +196,7 @@ func Make(
 	rf.voteReplyCh = make(chan RequestVoteReply)
 	rf.appendReplyCh = make(chan AppendEntryResult)
 	rf.applyCh = applyCh
+
 	rf.nextIndex = make(map[int]uint)
 	rf.matchIndex = make(map[int]uint)
 
@@ -206,6 +207,8 @@ func Make(
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
+	go rf.waitForVotes()
+	go rf.receiveAppendReply()
 
 	return rf
 }

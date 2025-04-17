@@ -117,7 +117,7 @@ func (rf *Raft) receiveAppendReply() {
 		rf.mu.Lock()
 
 		if rf.nodeRole != Leader {
-			rf.logger.Warn("got append reply, not leader anymore",
+			rf.logger.Debug("got append reply, not leader anymore",
 				"have", have,
 				"reply", r)
 			rf.mu.Unlock()
@@ -182,4 +182,5 @@ func (rf *Raft) receiveAppendReply() {
 
 		rf.mu.Unlock()
 	}
+
 }
