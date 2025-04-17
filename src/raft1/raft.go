@@ -9,11 +9,7 @@ package raft
 import (
 	//	"bytes"
 
-	"fmt"
-	"io"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -221,47 +217,8 @@ func Make(
 	return rf
 }
 
-func (rf *Raft) setupLogging() {
-	rf.logger = slog.New(slog.NewTextHandler(getLogOutputPath(rf.me), &slog.HandlerOptions{
-		Level:     getLogLevel(),
-		AddSource: true,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.SourceKey {
-				source := a.Value.Any().(*slog.Source)
-				source.File = filepath.Base(source.File)
-			}
-			return a
-		},
-	})).With(
-		"server", rf.me,
-		"role", rf.nodeRole,
-	)
-}
-
-func getLogLevel() slog.Level {
-	var level slog.Level
-	err := level.UnmarshalText([]byte(os.Getenv("LOG_LEVEL")))
-	if err != nil {
-		return LOG_LEVEL
-	}
-	return level
-}
-
-func getLogOutputPath(server int) io.Writer {
-	logPath := os.Getenv("LOG_FILE_NAME")
-	if logPath == "" {
-		return os.Stderr
-	}
-
-	file, err := os.OpenFile(fmt.Sprintf("%s-%d.log", logPath, server), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		panic(err)
-	}
-	return file
-}
-
 // needs to be called with rf.mu locked
-func (rf *Raft) getLastLog() LogEntry {
+func (rf *Raft) getLastLogEntry() LogEntry {
 	li := rf.logIndexes[len(rf.logIndexes)-1]
 	return rf.logs[li]
 }

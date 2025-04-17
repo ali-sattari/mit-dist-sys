@@ -15,7 +15,11 @@ func (rf *Raft) startElection() {
 	rf.votedFor = &rf.me
 	rf.lastBeat = time.Now()
 
-	ll := rf.getLastLog()
+	ll := rf.getLastLogEntry()
+
+	rf.logger.Info("starting election",
+		"currentTerm", rf.currentTerm,
+	)
 
 	for i := range rf.peers {
 		if i == int(rf.me) {
@@ -53,7 +57,7 @@ func (rf *Raft) waitForVotes() {
 		if rf.currentTerm == r.Term && r.VoteGranted {
 			votes++
 			if votes >= need {
-				rf.logger.Debug("election won",
+				rf.logger.Info("election won",
 					"term", rf.currentTerm,
 					"votes", votes)
 				rf.transition(Leader)
@@ -64,7 +68,7 @@ func (rf *Raft) waitForVotes() {
 
 		// step down if we get a higher term
 		if rf.currentTerm < r.Term {
-			rf.logger.Debug("stepping down due to higher term",
+			rf.logger.Warn("stepping down due to higher term",
 				"current_term", rf.currentTerm,
 				"new_term", r.Term)
 			rf.increaseTerm(r.Term)

@@ -22,7 +22,7 @@ func (rf *Raft) sendCommand(cmd any) uint {
 	rf.logs[l.Id] = l
 	rf.logIndexes = append(rf.logIndexes, l.Id)
 
-	rf.logger.Debug("received a command",
+	rf.logger.Info("received a command",
 		"entry", l,
 	)
 
@@ -46,12 +46,12 @@ func (rf *Raft) replicateLogEntries() {
 
 		// if not heartbeat
 		if len(entries) > 0 {
-			rf.logger.Debug(fmt.Sprintf("sending AppendEntry to %d", i),
+			rf.logger.Debug(fmt.Sprintf("sending entry to %d", i),
 				"nextIndex", rf.nextIndex[i],
 				"matchIndex", rf.matchIndex[i],
 			)
 		} else {
-			rf.logger.Debug(fmt.Sprintf("sending heart beat to %d", i),
+			rf.logger.Debug(fmt.Sprintf("sending heartbeat to %d", i),
 				"nextIndex", rf.nextIndex[i],
 				"matchIndex", rf.matchIndex[i],
 			)
@@ -117,7 +117,7 @@ func (rf *Raft) receiveAppendReply() {
 		rf.mu.Lock()
 
 		if rf.nodeRole != Leader {
-			rf.logger.Debug("got append entry reply but not a leader anymore!",
+			rf.logger.Warn("got append entry reply but not a leader anymore!",
 				"have", have,
 				"reply", r)
 			rf.mu.Unlock()
@@ -131,7 +131,7 @@ func (rf *Raft) receiveAppendReply() {
 
 		// step down if we get a higher term
 		if rf.currentTerm < r.Response.Term {
-			rf.logger.Debug("stepping down due to higher term",
+			rf.logger.Warn("stepping down due to higher term",
 				"current_term", rf.currentTerm,
 				"new_term", r.Response.Term)
 			rf.increaseTerm(r.Response.Term)
@@ -157,9 +157,12 @@ func (rf *Raft) receiveAppendReply() {
 					have[e.Id]++
 
 					if have[e.Id] >= need && rf.commitIndex < e.Id {
-						rf.logger.Debug("append entry replicated to majority, sending to app",
+						rf.logger.Info("entry replicated, sending to app",
 							"term", rf.currentTerm,
-							"replies", have[e.Id])
+							"lastApplied", rf.lastApplied,
+							"replies", have[e.Id],
+							"entry", e,
+						)
 
 						rf.commitIndex = e.Id
 						rf.lastApplied = e.Id

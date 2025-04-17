@@ -27,6 +27,19 @@ var validTransitions = map[NodeRole][]NodeRole{
 	Leader:    {Follower},
 }
 
+func ParseNodeRole(s string) (NodeRole, error) {
+	switch s {
+	case string(Follower):
+		return Follower, nil
+	case string(Candidate):
+		return Candidate, nil
+	case string(Leader):
+		return Leader, nil
+	default:
+		return "", fmt.Errorf("invalid NodeRole: %q", s)
+	}
+}
+
 // needs to be called with rf.mu locked
 func (rf *Raft) transition(newState NodeRole) error {
 	if newState == rf.nodeRole {
@@ -69,7 +82,7 @@ func (rf *Raft) ticker() {
 		switch rf.nodeRole {
 		case Follower:
 			if rf.isElectionTimedout() {
-				rf.logger.Debug("election time out",
+				rf.logger.Info("election time out",
 					"lastBeat", time.Until(rf.lastBeat),
 					"term", rf.currentTerm,
 				)

@@ -13,8 +13,9 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 
 	rf.logger.Debug("append entry request",
 		"args", args,
-		"logs", rf.logs,
-		"logIndexs", rf.logIndexes)
+		// "logs", rf.logs,
+		// "logIndexs", rf.logIndexes,
+	)
 
 	rf.lastBeat = time.Now()
 	rf.votedFor = nil
@@ -22,7 +23,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	// bad cases
 	reply.Term = rf.currentTerm
 	if rf.currentTerm > args.Term { // 5.1
-		rf.logger.Debug("rejecting append entry from outdated leader",
+		rf.logger.Info("rejecting entry, outdated leader",
 			"current_term", rf.currentTerm,
 			"leader_term", args.Term)
 		reply.Success = false
@@ -30,7 +31,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	}
 
 	if l, ok := rf.logs[args.PrevLogIndex]; !ok || l.Term != args.PrevLogTerm { // 5.3
-		rf.logger.Debug("rejecting append entry due to log inconsistency",
+		rf.logger.Info("rejecting entry, log inconsistency",
 			"args", args,
 			"logs", rf.logs,
 		)
@@ -40,7 +41,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 
 	// good case
 	if rf.nodeRole == Candidate {
-		rf.logger.Debug("stepping down from candidate to follower",
+		rf.logger.Info("stepping down, got rpc",
 			"leader", args.LeaderId)
 		rf.transition(Follower)
 	}
@@ -49,7 +50,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	for _, e := range args.Entries {
 		if l, ok := rf.logs[e.Id]; ok {
 			if l.Term != e.Term { // 5.3
-				rf.logger.Debug("deleting conflicting log entries",
+				rf.logger.Info("deleting log entries",
 					"from_index", e.Id)
 				rf.deleteLogEntries(e.Id)
 			}
@@ -73,19 +74,22 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 			Command:      rf.logs[rf.lastApplied].Command,
 			CommandIndex: int(rf.lastApplied),
 		}
-		rf.logger.Debug("sent committed messages to app",
+		rf.logger.Debug("sent committed to app",
 			"commitIndex", rf.commitIndex,
-			"lastApplied", rf.lastApplied)
+			"lastApplied", rf.lastApplied,
+			"entry", rf.logs[rf.lastApplied],
+		)
 	}
 
 	rf.currentTerm = args.Term
 	reply.Term = rf.currentTerm
 	reply.Success = true
 
-	rf.logger.Debug("processed append entry",
-		"commitIndex", rf.commitIndex,
-		"lastApplied", rf.lastApplied,
-		"logIndexs", rf.logIndexes)
+	// rf.logger.Debug("processed append entry",
+	// 	"commitIndex", rf.commitIndex,
+	// 	"lastApplied", rf.lastApplied,
+	// 	// "logIndexs", rf.logIndexes,
+	// )
 }
 
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
@@ -100,7 +104,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.lastBeat = time.Now()
 
 	if rf.currentTerm > args.Term { // out-of-date candidate
-		rf.logger.Debug("rejecting vote request from outdated candidate",
+		rf.logger.Warn("rejecting vote, outdated candidate",
 			"current_term", rf.currentTerm,
 			"candidate_term", args.Term)
 		reply.Term = rf.currentTerm
@@ -110,7 +114,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	if rf.currentTerm < args.Term { // got a higher term!
 		if rf.nodeRole != Follower {
-			rf.logger.Debug("stepping down due to higher term",
+			rf.logger.Info("stepping down, higher term",
 				"current_term", rf.currentTerm,
 				"new_term", args.Term,
 				"candidate", args.CandidateId)
@@ -120,7 +124,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	reply.Term = rf.currentTerm
-	ll := rf.getLastLog()
+	ll := rf.getLastLogEntry()
 	var vf string
 	if rf.votedFor != nil {
 		vf = fmt.Sprintf("%v", *rf.votedFor)
@@ -128,13 +132,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if rf.votedFor == nil || rf.votedFor == &args.CandidateId {
 		if args.LastLogTerm > ll.Term ||
 			(args.LastLogTerm == ll.Term && args.LastLogIndex >= ll.Id) {
-			rf.logger.Debug("granting vote to candidate",
+			rf.logger.Info("granting vote",
 				"candidate", args.CandidateId)
 			reply.VoteGranted = true
 			rf.votedFor = &args.CandidateId
 
 		} else {
-			rf.logger.Debug("rejecting vote request, mismatch in logs",
+			rf.logger.Warn("rejecting vote, log mismatch",
 				"follower", ll,
 				"candidate", args)
 			reply.VoteGranted = false
