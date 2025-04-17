@@ -39,10 +39,9 @@ type Raft struct {
 	lastBeat time.Time
 
 	// channels
-	voteReplyCh   chan RequestVoteReply
-	beatCh        chan uint
-	appendReplyCh chan AppendEntryResult
-	applyCh       chan raftapi.ApplyMsg
+	voteReplyCh   chan RequestVoteReply  // candidate
+	appendReplyCh chan AppendEntryResult //leader
+	applyCh       chan raftapi.ApplyMsg  //all
 
 	// persistent state: all servers
 	currentTerm uint
@@ -193,17 +192,12 @@ func Make(
 	rf.votedFor = nil
 	rf.commitIndex = 0
 	rf.lastApplied = 0
+
 	rf.voteReplyCh = make(chan RequestVoteReply)
-	rf.beatCh = make(chan uint)
 	rf.appendReplyCh = make(chan AppendEntryResult)
 	rf.applyCh = applyCh
 	rf.nextIndex = make(map[int]uint)
 	rf.matchIndex = make(map[int]uint)
-
-	for i := range peers {
-		rf.nextIndex[i] = 1
-		rf.matchIndex[i] = 0
-	}
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
@@ -212,7 +206,6 @@ func Make(
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
-	go rf.receiveBeats()
 
 	return rf
 }

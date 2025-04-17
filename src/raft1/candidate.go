@@ -35,8 +35,14 @@ func (rf *Raft) startElection() {
 		r := RequestVoteReply{}
 
 		go func(server int) {
-			rf.sendRequestVote(server, &a, &r)
-			rf.voteReplyCh <- r
+			if ok := rf.sendRequestVote(server, &a, &r); ok {
+				rf.voteReplyCh <- r
+			} else {
+				rf.logger.Debug("error in vote rpc",
+					"peer", server,
+					"args", a,
+				)
+			}
 		}(i)
 	}
 }
@@ -47,6 +53,14 @@ func (rf *Raft) waitForVotes() {
 
 	for r := range rf.voteReplyCh {
 		rf.mu.Lock()
+
+		if rf.nodeRole != Candidate {
+			rf.logger.Warn("got vote reply, not candidate anymore",
+				"have", votes,
+				"reply", r)
+			rf.mu.Unlock()
+			return
+		}
 
 		rf.logger.Debug("waiting for votes",
 			"term", rf.currentTerm,

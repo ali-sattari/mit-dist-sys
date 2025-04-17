@@ -68,7 +68,7 @@ func (rf *Raft) replicateLogEntries() {
 					Response: r,
 				}
 			} else {
-				rf.logger.Debug("error sending append entry rpc",
+				rf.logger.Debug("error in append entry rpc",
 					"peer", server,
 					"args", a,
 					"entries", entries,
@@ -117,7 +117,7 @@ func (rf *Raft) receiveAppendReply() {
 		rf.mu.Lock()
 
 		if rf.nodeRole != Leader {
-			rf.logger.Warn("got append entry reply but not a leader anymore!",
+			rf.logger.Warn("got append reply, not leader anymore",
 				"have", have,
 				"reply", r)
 			rf.mu.Unlock()

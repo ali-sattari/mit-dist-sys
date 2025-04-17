@@ -58,13 +58,16 @@ func (rf *Raft) transition(newState NodeRole) error {
 		"from", rf.nodeRole,
 		"to", newState)
 
+	// role specific work
 	switch newState {
 	case Follower:
-		// TODO: stop waitForVotes and receiveAppendReply go routines
+		// what?
 	case Candidate:
+		// TODO: end the go routine?
 		go rf.waitForVotes()
 	case Leader:
 		rf.setFollowerIndexes()
+		// TODO: end the go routine?
 		go rf.receiveAppendReply()
 	}
 
@@ -100,14 +103,6 @@ func (rf *Raft) ticker() {
 
 		rf.mu.Unlock()
 		time.Sleep(stateLoopInterval)
-	}
-}
-
-func (rf *Raft) receiveBeats() {
-	for range rf.beatCh {
-		rf.mu.Lock()
-		rf.lastBeat = time.Now()
-		rf.mu.Unlock()
 	}
 }
 
