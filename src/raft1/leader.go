@@ -13,18 +13,6 @@ func (rf *Raft) sendAppendEntry(server int, args *AppendEntryArgs, reply *Append
 }
 
 // needs to be called with rf.mu locked
-func (rf *Raft) sendHeartbeat() {
-	// check if it is time to send heartbeat
-	if time.Since(rf.lastBeat) < heartbeatInterval {
-		return
-	}
-
-	rf.logger.Debug("time for heartbeat")
-	rf.sendLogEntry([]LogEntry{})
-	rf.lastBeat = time.Now()
-}
-
-// needs to be called with rf.mu locked
 func (rf *Raft) sendCommand(cmd any) uint {
 	l := LogEntry{
 		Id:      rf.logIndexes[len(rf.logs)-1] + 1,
@@ -38,52 +26,32 @@ func (rf *Raft) sendCommand(cmd any) uint {
 		"entry", l,
 	)
 
-	rf.sendLogEntry([]LogEntry{l})
-
 	return l.Id
 }
 
 // needs to be called with rf.mu locked
-func (rf *Raft) makeAppendEntryArgs(peer int, entries []LogEntry) AppendEntryArgs {
-	prevLogIndex := rf.matchIndex[peer]
-	return AppendEntryArgs{
-		Term:         rf.currentTerm,
-		LeaderId:     rf.me,
-		PrevLogIndex: prevLogIndex,
-		PrevLogTerm:  rf.logs[prevLogIndex].Term,
-		LeaderCommit: rf.commitIndex,
-		Entries:      entries,
+func (rf *Raft) replicateLogEntries() {
+	// check if it is time to send heartbeat or entries
+	if time.Since(rf.lastBeat) < heartbeatInterval {
+		return
 	}
-}
 
-// needs to be called with rf.mu locked
-func (rf *Raft) sendLogEntry(entries []LogEntry) {
 	for i := range rf.peers {
+		// skip the leader itself
 		if i == rf.me {
 			continue
 		}
 
+		entries := rf.getEntriesForFollower(i)
+
 		// if not heartbeat
 		if len(entries) > 0 {
-			// is follower lagging?
-			var mid uint
-			for _, e := range entries {
-				mid = max(mid, e.Id)
-			}
-			if mid-rf.matchIndex[i] > 1 {
-				ls := []LogEntry{}
-				for _, l := range rf.logIndexes[rf.nextIndex[i]:] {
-					ls = append(ls, rf.logs[l])
-				}
-				entries = ls
-				rf.logger.Debug("follower lagging",
-					"peer", i,
-					"nextIndex", rf.nextIndex[i],
-					"matchIndex", rf.matchIndex[i],
-					"sending", ls)
-			}
-
 			rf.logger.Debug(fmt.Sprintf("sending AppendEntry to %d", i),
+				"nextIndex", rf.nextIndex[i],
+				"matchIndex", rf.matchIndex[i],
+			)
+		} else {
+			rf.logger.Debug(fmt.Sprintf("sending heart beat to %d", i),
 				"nextIndex", rf.nextIndex[i],
 				"matchIndex", rf.matchIndex[i],
 			)
@@ -110,7 +78,38 @@ func (rf *Raft) sendLogEntry(entries []LogEntry) {
 	}
 }
 
-func (rf *Raft) waitForAppendReply() {
+// needs to be called with rf.mu locked
+func (rf *Raft) getEntriesForFollower(server int) []LogEntry {
+	ls := []LogEntry{}
+	for _, l := range rf.logIndexes[rf.nextIndex[server]:] {
+		ls = append(ls, rf.logs[l])
+	}
+	return ls
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) setFollowerIndexes() {
+	li := rf.logIndexes[len(rf.logIndexes)-1]
+	for i := range rf.peers {
+		rf.nextIndex[i] = li + 1
+		rf.matchIndex[i] = 0
+	}
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) makeAppendEntryArgs(peer int, entries []LogEntry) AppendEntryArgs {
+	prevLogIndex := rf.nextIndex[peer] - 1
+	return AppendEntryArgs{
+		Term:         rf.currentTerm,
+		LeaderId:     rf.me,
+		PrevLogIndex: prevLogIndex,
+		PrevLogTerm:  rf.logs[prevLogIndex].Term,
+		LeaderCommit: rf.commitIndex,
+		Entries:      entries,
+	}
+}
+
+func (rf *Raft) receiveAppendReply() {
 	have := map[uint]uint{}
 	need := uint(len(rf.peers) / 2)
 
@@ -142,34 +141,40 @@ func (rf *Raft) waitForAppendReply() {
 		}
 
 		if r.Response.Success {
-			for _, e := range r.Entries {
-				rf.matchIndex[r.Server] = max(e.Id, rf.matchIndex[r.Server])
-				rf.nextIndex[r.Server] = max(e.Id, rf.nextIndex[r.Server])
-				have[e.Id]++
+			// not a heartbeat
+			if len(r.Entries) > 0 {
+				mi := maxIndex(r.Entries)
+				rf.logger.Debug("append entry success reply",
+					"from", r.Server,
+					"maxIndex", mi,
+					"nextIndex", rf.nextIndex[r.Server],
+					"matchIndex", rf.matchIndex[r.Server],
+				)
+				rf.matchIndex[r.Server] = mi
+				rf.nextIndex[r.Server] = mi + 1
 
-				if have[e.Id] >= need && rf.commitIndex < e.Id {
-					rf.logger.Debug("append entry replicated to majority, sending to app",
-						"term", rf.currentTerm,
-						"replies", have[e.Id])
+				for _, e := range r.Entries {
+					have[e.Id]++
 
-					rf.commitIndex = e.Id
-					rf.lastApplied = e.Id
+					if have[e.Id] >= need && rf.commitIndex < e.Id {
+						rf.logger.Debug("append entry replicated to majority, sending to app",
+							"term", rf.currentTerm,
+							"replies", have[e.Id])
 
-					rf.applyCh <- raftapi.ApplyMsg{
-						CommandValid: true,
-						Command:      e.Command,
-						CommandIndex: int(e.Id),
+						rf.commitIndex = e.Id
+						rf.lastApplied = e.Id
+
+						rf.applyCh <- raftapi.ApplyMsg{
+							CommandValid: true,
+							Command:      e.Command,
+							CommandIndex: int(e.Id),
+						}
 					}
 				}
 			}
 		} else {
-			// follower is behind, decrement nextIndex and retry
+			// follower is behind, decrement nextIndex
 			rf.nextIndex[r.Server]--
-			ls := []LogEntry{}
-			for _, l := range rf.logIndexes[rf.nextIndex[r.Server]:] {
-				ls = append(ls, rf.logs[l])
-			}
-			go rf.sendLogEntry(ls)
 		}
 
 		rf.mu.Unlock()

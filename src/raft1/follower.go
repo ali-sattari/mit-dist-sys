@@ -120,18 +120,27 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	reply.Term = rf.currentTerm
-	if (rf.votedFor == nil || rf.votedFor == &args.CandidateId) &&
-		(rf.lastApplied <= args.LastLogIndex) {
-		rf.logger.Debug("granting vote to candidate",
-			"candidate", args.CandidateId)
-		reply.VoteGranted = true
-		rf.votedFor = &args.CandidateId
-	} else {
-		var vf string
-		if rf.votedFor != nil {
-			vf = fmt.Sprintf("%v", *rf.votedFor)
+	ll := rf.getLastLog()
+	var vf string
+	if rf.votedFor != nil {
+		vf = fmt.Sprintf("%v", *rf.votedFor)
+	}
+	if rf.votedFor == nil || rf.votedFor == &args.CandidateId {
+		if args.LastLogTerm > ll.Term ||
+			(args.LastLogTerm == ll.Term && args.LastLogIndex >= ll.Id) {
+			rf.logger.Debug("granting vote to candidate",
+				"candidate", args.CandidateId)
+			reply.VoteGranted = true
+			rf.votedFor = &args.CandidateId
+
+		} else {
+			rf.logger.Debug("rejecting vote request, mismatch in logs",
+				"follower", ll,
+				"candidate", args)
+			reply.VoteGranted = false
 		}
-		rf.logger.Debug("rejecting vote request",
+	} else {
+		rf.logger.Debug("already voted",
 			"votedFor", vf,
 			"candidate", args.CandidateId)
 		reply.VoteGranted = false

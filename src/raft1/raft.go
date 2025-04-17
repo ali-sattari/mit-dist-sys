@@ -205,7 +205,7 @@ func Make(
 	rf.matchIndex = make(map[int]uint)
 
 	for i := range peers {
-		rf.nextIndex[i] = 0
+		rf.nextIndex[i] = 1
 		rf.matchIndex[i] = 0
 	}
 
@@ -258,4 +258,10 @@ func getLogOutputPath(server int) io.Writer {
 		panic(err)
 	}
 	return file
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) getLastLog() LogEntry {
+	li := rf.logIndexes[len(rf.logIndexes)-1]
+	return rf.logs[li]
 }

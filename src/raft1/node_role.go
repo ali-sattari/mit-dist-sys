@@ -45,6 +45,16 @@ func (rf *Raft) transition(newState NodeRole) error {
 		"from", rf.nodeRole,
 		"to", newState)
 
+	switch newState {
+	case Follower:
+		// TODO: stop waitForVotes and receiveAppendReply go routines
+	case Candidate:
+		go rf.waitForVotes()
+	case Leader:
+		rf.setFollowerIndexes()
+		go rf.receiveAppendReply()
+	}
+
 	rf.nodeRole = newState
 	rf.setupLogging() // dirty trick, but hey it works
 
@@ -69,13 +79,10 @@ func (rf *Raft) ticker() {
 		case Candidate:
 			if rf.needsElection() {
 				rf.startElection()
-				go rf.waitForVotes()
 			}
 
 		case Leader:
-			rf.sendHeartbeat()
-			go rf.waitForAppendReply()
-			// TODO: set nextIndex to leader's last index+1
+			rf.replicateLogEntries()
 		}
 
 		rf.mu.Unlock()

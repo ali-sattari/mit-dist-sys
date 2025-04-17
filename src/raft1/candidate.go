@@ -15,7 +15,7 @@ func (rf *Raft) startElection() {
 	rf.votedFor = &rf.me
 	rf.lastBeat = time.Now()
 
-	lastLogTerm := rf.logs[rf.lastApplied].Term
+	ll := rf.getLastLog()
 
 	for i := range rf.peers {
 		if i == int(rf.me) {
@@ -25,8 +25,8 @@ func (rf *Raft) startElection() {
 		a := RequestVoteArgs{
 			Term:         rf.currentTerm,
 			CandidateId:  rf.me,
-			LastLogIndex: rf.lastApplied,
-			LastLogTerm:  lastLogTerm,
+			LastLogIndex: ll.Id,
+			LastLogTerm:  ll.Term,
 		}
 		r := RequestVoteReply{}
 
