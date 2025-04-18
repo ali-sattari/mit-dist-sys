@@ -23,6 +23,7 @@ func (rf *Raft) sendCommand(cmd any) uint {
 	rf.logIndexes = append(rf.logIndexes, l.Id)
 
 	rf.logger.Info("received a command",
+		"currentTerm", rf.currentTerm,
 		"entry", l,
 	)
 
@@ -47,11 +48,13 @@ func (rf *Raft) replicateLogEntries() {
 		// if not heartbeat
 		if len(entries) > 0 {
 			rf.logger.Debug(fmt.Sprintf("sending entry to %d", i),
+				"currentTerm", rf.currentTerm,
 				"nextIndex", rf.nextIndex[i],
 				"matchIndex", rf.matchIndex[i],
 			)
 		} else {
 			rf.logger.Debug(fmt.Sprintf("sending heartbeat to %d", i),
+				"currentTerm", rf.currentTerm,
 				"nextIndex", rf.nextIndex[i],
 				"matchIndex", rf.matchIndex[i],
 			)
@@ -67,12 +70,6 @@ func (rf *Raft) replicateLogEntries() {
 					Entries:  entries,
 					Response: r,
 				}
-			} else {
-				rf.logger.Debug("error in append entry rpc",
-					"peer", server,
-					"args", a,
-					"entries", entries,
-				)
 			}
 		}(i)
 	}
@@ -118,6 +115,7 @@ func (rf *Raft) receiveAppendReply() {
 
 		if rf.nodeRole != Leader {
 			rf.logger.Debug("got append reply, not leader anymore",
+				"currentTerm", rf.currentTerm,
 				"have", have,
 				"reply", r)
 			rf.mu.Unlock()
@@ -125,6 +123,7 @@ func (rf *Raft) receiveAppendReply() {
 		}
 
 		rf.logger.Debug("got append entry reply",
+			"currentTerm", rf.currentTerm,
 			"have", have,
 			"commitIndex", rf.commitIndex,
 			"reply", r)
@@ -132,10 +131,21 @@ func (rf *Raft) receiveAppendReply() {
 		// step down if we get a higher term
 		if rf.currentTerm < r.Response.Term {
 			rf.logger.Warn("stepping down due to higher term",
-				"current_term", rf.currentTerm,
-				"new_term", r.Response.Term)
+				"currentTerm", rf.currentTerm,
+				"newTerm", r.Response.Term)
 			rf.increaseTerm(r.Response.Term)
 			rf.transition(Follower)
+			rf.mu.Unlock()
+			return
+		}
+
+		// reject response from an older term
+		if rf.currentTerm != r.Response.Term {
+			rf.logger.Warn("discarding stale reply",
+				"currentTerm", rf.currentTerm,
+				"replyTerm", r.Response.Term,
+				"result", r,
+			)
 			rf.mu.Unlock()
 			return
 		}
@@ -145,6 +155,7 @@ func (rf *Raft) receiveAppendReply() {
 			if len(r.Entries) > 0 {
 				mi := maxIndex(r.Entries)
 				rf.logger.Debug("append entry success reply",
+					"currentTerm", rf.currentTerm,
 					"from", r.Server,
 					"maxIndex", mi,
 					"nextIndex", rf.nextIndex[r.Server],
@@ -157,15 +168,26 @@ func (rf *Raft) receiveAppendReply() {
 					have[e.Id]++
 
 					if have[e.Id] >= need && rf.commitIndex < e.Id {
+						// check if term is still valid (fig 8)
+						if rf.currentTerm != e.Term {
+							rf.logger.Warn("term mismatch pre-apply",
+								"currentTerm", rf.currentTerm,
+								"peer", r.Server,
+								"commitIndex", rf.commitIndex,
+								"lastApplied", rf.lastApplied,
+								"entry", e,
+							)
+						}
+
+						rf.commitIndex = e.Id
+						rf.lastApplied = e.Id
+
 						rf.logger.Info("entry replicated, sending to app",
-							"term", rf.currentTerm,
+							"currentTerm", rf.currentTerm,
 							"lastApplied", rf.lastApplied,
 							"replies", have[e.Id],
 							"entry", e,
 						)
-
-						rf.commitIndex = e.Id
-						rf.lastApplied = e.Id
 
 						rf.applyCh <- raftapi.ApplyMsg{
 							CommandValid: true,

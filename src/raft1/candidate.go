@@ -37,11 +37,6 @@ func (rf *Raft) startElection() {
 		go func(server int) {
 			if ok := rf.sendRequestVote(server, &a, &r); ok {
 				rf.voteReplyCh <- r
-			} else {
-				rf.logger.Debug("error in vote rpc",
-					"peer", server,
-					"args", a,
-				)
 			}
 		}(i)
 	}
@@ -56,6 +51,7 @@ func (rf *Raft) waitForVotes() {
 
 		if rf.nodeRole != Candidate {
 			rf.logger.Debug("got vote reply, not candidate anymore",
+				"currentTerm", rf.currentTerm,
 				"have", votes,
 				"reply", r)
 			rf.mu.Unlock()
@@ -63,7 +59,7 @@ func (rf *Raft) waitForVotes() {
 		}
 
 		rf.logger.Debug("waiting for votes",
-			"term", rf.currentTerm,
+			"currentTerm", rf.currentTerm,
 			"needed", need,
 			"current", votes,
 			"reply", r)
@@ -72,7 +68,7 @@ func (rf *Raft) waitForVotes() {
 			votes++
 			if votes >= need {
 				rf.logger.Info("election won",
-					"term", rf.currentTerm,
+					"currentTerm", rf.currentTerm,
 					"votes", votes)
 				rf.transition(Leader)
 				rf.mu.Unlock()
@@ -83,8 +79,8 @@ func (rf *Raft) waitForVotes() {
 		// step down if we get a higher term
 		if rf.currentTerm < r.Term {
 			rf.logger.Warn("stepping down due to higher term",
-				"current_term", rf.currentTerm,
-				"new_term", r.Term)
+				"currentTerm", rf.currentTerm,
+				"newTerm", r.Term)
 			rf.increaseTerm(r.Term)
 			rf.transition(Follower)
 			rf.mu.Unlock()

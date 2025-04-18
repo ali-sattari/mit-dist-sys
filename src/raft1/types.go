@@ -54,3 +54,14 @@ func (l LogEntry) String() string {
 		c,
 	)
 }
+
+func (x AppendEntryResult) String() string {
+	return fmt.Sprintf(
+		"AppendResult{Server:%d, Res:%+v, Logs:%+v}",
+		x.Server,
+		x.Response,
+		x.Entries,
+	)
+}
+
+// TODO: string for all types

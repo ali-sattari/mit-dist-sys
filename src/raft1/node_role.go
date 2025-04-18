@@ -49,12 +49,14 @@ func (rf *Raft) transition(newState NodeRole) error {
 	// validate transition
 	if !slices.Contains(validTransitions[rf.nodeRole], newState) {
 		rf.logger.Error("invalid state transition",
+			"currentTerm", rf.currentTerm,
 			"from", rf.nodeRole,
 			"to", newState)
 		return fmt.Errorf("invalid transition %s -> %s", rf.nodeRole, newState)
 	}
 
 	rf.logger.Debug("state transition",
+		"currentTerm", rf.currentTerm,
 		"from", rf.nodeRole,
 		"to", newState)
 
@@ -82,7 +84,8 @@ func (rf *Raft) ticker() {
 		switch rf.nodeRole {
 		case Follower:
 			if rf.isElectionTimedout() {
-				rf.logger.Info("election time out",
+				rf.logger.Info("election timed out",
+					"currentTerm", rf.currentTerm,
 					"lastBeat", time.Until(rf.lastBeat),
 					"term", rf.currentTerm,
 				)

@@ -114,7 +114,7 @@ func (h *AnnotateHandler) Handle(ctx context.Context, r slog.Record) error {
 		return true
 	})
 
-	if r.Level >= slog.LevelInfo {
+	if r.Level >= slog.LevelDebug {
 		tester.AnnotatePointColor(tag, desp, details, RoleColor[h.role])
 	}
 
