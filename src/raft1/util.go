@@ -27,8 +27,8 @@ func truncateWithEllipsis(input any, max int) string {
 	return string(runes[:max])
 }
 
-func maxIndex(entries []LogEntry) uint {
-	var m uint
+func maxIndex(entries []LogEntry) int {
+	var m int
 	for _, e := range entries {
 		m = max(m, e.Id)
 	}

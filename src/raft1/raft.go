@@ -20,8 +20,6 @@ import (
 	tester "6.5840/tester1"
 )
 
-var LOG_LEVEL slog.Level = slog.LevelError
-
 // A Go object implementing a single Raft peer.
 type Raft struct {
 	mu        sync.RWMutex        // Lock to protect shared access to this peer's state
@@ -44,18 +42,18 @@ type Raft struct {
 	applyCh       chan raftapi.ApplyMsg  //all
 
 	// persistent state: all servers
-	currentTerm uint
+	currentTerm int
 	votedFor    *int
-	logs        map[uint]LogEntry
-	logIndexes  []uint
+	logs        map[int]LogEntry
+	logIndexes  []int
 
 	// volatile state: all servers
-	commitIndex uint // index of highest log entry known to be committed
-	lastApplied uint // index of highest log entry applied to state machine
+	commitIndex int // index of highest log entry known to be committed
+	lastApplied int // index of highest log entry applied to state machine
 
 	// volatile state: leader
-	nextIndex  map[int]uint // for each server, index of the next log entry to send to that server
-	matchIndex map[int]uint // for each server, index of highest log entry known to be replicated on server
+	nextIndex  map[int]int // for each server, index of the next log entry to send to that server
+	matchIndex map[int]int // for each server, index of highest log entry known to be replicated on server
 }
 
 // return currentTerm and whether this server
@@ -185,8 +183,8 @@ func Make(
 	rf.me = me
 
 	// TODO: Your initialization code here (3A, 3B, 3C).
-	rf.logs = map[uint]LogEntry{0: {Id: 0, Command: nil, Term: 0}}
-	rf.logIndexes = []uint{0}
+	rf.logs = map[int]LogEntry{0: {Id: 0, Command: nil, Term: 0}}
+	rf.logIndexes = []int{0}
 	rf.nodeRole = Follower
 	rf.currentTerm = 0
 	rf.votedFor = nil
@@ -197,8 +195,8 @@ func Make(
 	rf.appendReplyCh = make(chan AppendEntryResult)
 	rf.applyCh = applyCh
 
-	rf.nextIndex = make(map[int]uint)
-	rf.matchIndex = make(map[int]uint)
+	rf.nextIndex = make(map[int]int)
+	rf.matchIndex = make(map[int]int)
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())

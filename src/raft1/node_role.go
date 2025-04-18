@@ -16,9 +16,9 @@ const (
 )
 
 const electionTimeout = 250 // milliseconds
-const electionJitter = 100  // milliseconds
+const electionJitter = 200  // milliseconds
 const stateLoopInterval = time.Millisecond * 10
-const heartbeatInterval = time.Millisecond * 100
+const heartbeatInterval = time.Millisecond * 150
 
 // Transition table
 var validTransitions = map[NodeRole][]NodeRole{
@@ -115,7 +115,7 @@ func (rf *Raft) isElectionTimedout() bool {
 }
 
 // needs to be called with rf.mu locked
-func (rf *Raft) increaseTerm(newTerm uint) {
+func (rf *Raft) increaseTerm(newTerm int) {
 	rf.currentTerm = newTerm
 	rf.votedFor = nil
 }

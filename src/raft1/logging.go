@@ -11,9 +11,12 @@ import (
 	tester "6.5840/tester1"
 )
 
+var LOG_LEVEL slog.Level = slog.LevelError
+
 func (rf *Raft) setupLogging() {
+	lvl := getLogLevel()
 	fileHandler := slog.NewTextHandler(getLogOutputPath(rf.me), &slog.HandlerOptions{
-		Level:     getLogLevel(),
+		Level:     lvl,
 		AddSource: true,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.SourceKey {
@@ -24,7 +27,8 @@ func (rf *Raft) setupLogging() {
 		},
 	})
 	annotateHandler := &AnnotateHandler{
-		next: fileHandler,
+		level: lvl,
+		next:  fileHandler,
 	}
 
 	rf.logger = slog.New(annotateHandler).With(
@@ -56,6 +60,7 @@ func getLogOutputPath(server int) io.Writer {
 }
 
 type AnnotateHandler struct {
+	level  slog.Level
 	next   slog.Handler
 	server int
 	role   NodeRole
@@ -69,7 +74,8 @@ func (h *AnnotateHandler) Enabled(ctx context.Context, level slog.Level) bool {
 func (h *AnnotateHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	var newH AnnotateHandler
 
-	// Copy existing attrs to avoid mutating the receiver.
+	newH.level = h.level
+
 	newAttrs := make([]slog.Attr, len(h.attrs), len(h.attrs)+len(attrs))
 	copy(newAttrs, h.attrs)
 	newAttrs = append(newAttrs, attrs...)
@@ -107,14 +113,14 @@ var RoleColor = map[NodeRole]string{
 
 func (h *AnnotateHandler) Handle(ctx context.Context, r slog.Record) error {
 	tag := fmt.Sprintf("server %d", h.server)
-	desp := r.Message
+	desp := fmt.Sprintf("%d: %s", h.server, r.Message)
 	var details string
 	r.Attrs(func(a slog.Attr) bool {
 		details += fmt.Sprintf("%s: %+v<br/>", a.Key, a.Value)
 		return true
 	})
 
-	if r.Level >= slog.LevelDebug {
+	if r.Level >= h.level {
 		tester.AnnotatePointColor(tag, desp, details, RoleColor[h.role])
 	}
 

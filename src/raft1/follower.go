@@ -33,9 +33,8 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.lastBeat = time.Now()
 	rf.votedFor = nil
 
-	ll := rf.getLastLogEntry()
-	if ll.Id != args.PrevLogIndex ||
-		(ll.Id == args.PrevLogIndex && ll.Term != args.PrevLogTerm) { // 5.3
+	// fig 2: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
+	if l, ok := rf.logs[args.PrevLogIndex]; !ok || l.Term != args.PrevLogTerm {
 		rf.logger.Info("rejecting entry, log inconsistency",
 			"currentTerm", rf.currentTerm,
 			"args", args,
@@ -110,7 +109,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 }
 
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// TODO: Your code here (3A, 3B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
@@ -122,7 +120,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.logger.Warn("rejecting vote, outdated candidate",
 			"currentTerm", rf.currentTerm,
 			"candidate", args.CandidateId,
-			"candidate_term", args.Term)
+			"candidateTerm", args.Term)
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
 		return
@@ -168,7 +166,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			rf.logger.Warn("rejecting vote, log mismatch",
 				"currentTerm", rf.currentTerm,
 				"follower", ll,
-				"candidate", args)
+				"args", args)
 			reply.VoteGranted = false
 		}
 	} else {
@@ -180,7 +178,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 }
 
-func (rf *Raft) deleteLogEntries(from uint) {
+func (rf *Raft) deleteLogEntries(from int) {
 	f := rf.logIndexes[:0]
 	for _, idx := range rf.logIndexes {
 		if idx < from {

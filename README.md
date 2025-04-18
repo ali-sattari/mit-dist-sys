@@ -27,6 +27,8 @@
 
 ## Lab 3: Raft
 
+Very useful [blog post](https://thesquareplanet.com/blog/students-guide-to-raft/) for common pitfalls.
+
 ### 3A: Leader Election
 
 * Need and internal loop for node state management
@@ -38,3 +40,7 @@
 * Send each committed entry to applyChan for the application layer
   * A log entry is committed once the leader that created the entry has replicated it on a majority of the servers
 * Start log at index 0, because easy
+
+* flappy tests:
+  * TestFailNoAgree3B
+  * TestBackup3B

@@ -13,7 +13,7 @@ func (rf *Raft) sendAppendEntry(server int, args *AppendEntryArgs, reply *Append
 }
 
 // needs to be called with rf.mu locked
-func (rf *Raft) sendCommand(cmd any) uint {
+func (rf *Raft) sendCommand(cmd any) int {
 	l := LogEntry{
 		Id:      rf.logIndexes[len(rf.logs)-1] + 1,
 		Term:    rf.currentTerm,
@@ -36,6 +36,8 @@ func (rf *Raft) replicateLogEntries() {
 	if time.Since(rf.lastBeat) < heartbeatInterval {
 		return
 	}
+
+	rf.lastBeat = time.Now()
 
 	for i := range rf.peers {
 		// skip the leader itself
@@ -95,7 +97,7 @@ func (rf *Raft) setFollowerIndexes() {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) makeAppendEntryArgs(peer int, entries []LogEntry) AppendEntryArgs {
-	prevLogIndex := rf.nextIndex[peer] - 1
+	prevLogIndex := max(0, rf.nextIndex[peer]-1)
 	return AppendEntryArgs{
 		Term:         rf.currentTerm,
 		LeaderId:     rf.me,
@@ -107,8 +109,8 @@ func (rf *Raft) makeAppendEntryArgs(peer int, entries []LogEntry) AppendEntryArg
 }
 
 func (rf *Raft) receiveAppendReply() {
-	have := map[uint]uint{}
-	need := uint(len(rf.peers) / 2)
+	have := map[int]int{}
+	need := int(len(rf.peers) / 2)
 
 	for r := range rf.appendReplyCh {
 		rf.mu.Lock()
@@ -116,17 +118,20 @@ func (rf *Raft) receiveAppendReply() {
 		if rf.nodeRole != Leader {
 			rf.logger.Debug("got append reply, not leader anymore",
 				"currentTerm", rf.currentTerm,
+				"commitIndex", rf.commitIndex,
+				"reply", r,
 				"have", have,
-				"reply", r)
+			)
 			rf.mu.Unlock()
 			return
 		}
 
 		rf.logger.Debug("got append entry reply",
 			"currentTerm", rf.currentTerm,
-			"have", have,
 			"commitIndex", rf.commitIndex,
-			"reply", r)
+			"reply", r,
+			"have", have,
+		)
 
 		// step down if we get a higher term
 		if rf.currentTerm < r.Response.Term {
@@ -179,27 +184,28 @@ func (rf *Raft) receiveAppendReply() {
 							)
 						}
 
-						rf.commitIndex = e.Id
-						rf.lastApplied = e.Id
-
-						rf.logger.Info("entry replicated, sending to app",
-							"currentTerm", rf.currentTerm,
-							"lastApplied", rf.lastApplied,
-							"replies", have[e.Id],
-							"entry", e,
-						)
-
-						rf.applyCh <- raftapi.ApplyMsg{
-							CommandValid: true,
-							Command:      e.Command,
-							CommandIndex: int(e.Id),
-						}
+						rf.commitIndex = max(rf.commitIndex, e.Id)
 					}
 				}
 			}
+
+			// send committed logs to apply chan
+			for rf.commitIndex > rf.lastApplied {
+				rf.lastApplied++
+				rf.applyCh <- raftapi.ApplyMsg{
+					CommandValid: true,
+					Command:      rf.logs[rf.lastApplied].Command,
+					CommandIndex: int(rf.lastApplied),
+				}
+				rf.logger.Info("entry replicated, sending to app",
+					"currentTerm", rf.currentTerm,
+					"lastApplied", rf.lastApplied,
+					"entry", rf.logs[rf.lastApplied],
+				)
+			}
 		} else {
 			// follower is behind, decrement nextIndex
-			rf.nextIndex[r.Server]--
+			rf.nextIndex[r.Server] = max(0, rf.nextIndex[r.Server]-1)
 		}
 
 		rf.mu.Unlock()
