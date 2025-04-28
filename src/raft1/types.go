@@ -14,16 +14,18 @@ type AppendEntryArgs struct {
 type AppendEntryReply struct {
 	Term    int
 	Success bool
+	XTerm   int // Term of conflicting entry
+	XIndex  int // First index of XTerm
+	XLen    int // Follower's log length
 }
 
 type AppendEntryResult struct {
-	Server   int
-	Entries  []LogEntry
-	Response AppendEntryReply
+	PeerId  int
+	Entries []LogEntry
+	AppendEntryReply
 }
 
 type RequestVoteArgs struct {
-	// Your data here (3A, 3B).
 	Term         int
 	CandidateId  int
 	LastLogIndex int
@@ -31,9 +33,13 @@ type RequestVoteArgs struct {
 }
 
 type RequestVoteReply struct {
-	// Your data here (3A).
 	Term        int
 	VoteGranted bool
+}
+
+type RequestVoteResult struct {
+	PeerId int
+	RequestVoteReply
 }
 
 type LogEntry struct {
@@ -64,13 +70,13 @@ func (a AppendEntryArgs) String() string {
 }
 
 func (r AppendEntryReply) String() string {
-	return fmt.Sprintf("AppendEntryReply{Term:%d, Success:%t}", r.Term, r.Success)
+	return fmt.Sprintf("AppendEntryReply{Term:%d, Success:%t, XTerm:%d, XIndex:%d, XLen:%d}", r.Term, r.Success, r.XTerm, r.XIndex, r.XLen)
 }
 
 func (x AppendEntryResult) String() string {
 	return fmt.Sprintf(
-		"AppendEntryResult{Server:%d, Res:%+v, Logs:%+v}",
-		x.Server, x.Response, x.Entries,
+		"AppendEntryResult{PeerID:%d, Rep:%+v, Logs:%+v}",
+		x.PeerId, x.AppendEntryReply, x.Entries,
 	)
 }
 
@@ -83,4 +89,11 @@ func (a RequestVoteArgs) String() string {
 
 func (r RequestVoteReply) String() string {
 	return fmt.Sprintf("RequestVoteReply{Term:%d, VoteGranted:%t}", r.Term, r.VoteGranted)
+}
+
+func (x RequestVoteResult) String() string {
+	return fmt.Sprintf(
+		"RequestVoteResult{PeerID:%d, Rep:%+v}",
+		x.PeerId, x.RequestVoteReply,
+	)
 }

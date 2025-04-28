@@ -11,7 +11,7 @@ import (
 	tester "6.5840/tester1"
 )
 
-var LOG_LEVEL slog.Level = slog.LevelError
+var LOG_LEVEL slog.Level = slog.LevelWarn
 
 func (rf *Raft) setupLogging() {
 	lvl := getLogLevel()

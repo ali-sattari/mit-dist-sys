@@ -3,8 +3,6 @@ package raft
 import (
 	"fmt"
 	"time"
-
-	"6.5840/raftapi"
 )
 
 func (rf *Raft) sendAppendEntry(server int, args *AppendEntryArgs, reply *AppendEntryReply) bool {
@@ -31,9 +29,9 @@ func (rf *Raft) sendCommand(cmd any) int {
 }
 
 // needs to be called with rf.mu locked
-func (rf *Raft) replicateLogEntries() {
+func (rf *Raft) replicateLogEntries(force bool) {
 	// check if it is time to send heartbeat or entries
-	if time.Since(rf.lastBeat) < heartbeatInterval {
+	if !force && time.Since(rf.lastBeat) < heartbeatInterval {
 		return
 	}
 
@@ -62,18 +60,7 @@ func (rf *Raft) replicateLogEntries() {
 			)
 		}
 
-		a := rf.makeAppendEntryArgs(i, entries)
-		r := AppendEntryReply{}
-
-		go func(server int) {
-			if ok := rf.sendAppendEntry(server, &a, &r); ok {
-				rf.appendReplyCh <- AppendEntryResult{
-					Server:   server,
-					Entries:  entries,
-					Response: r,
-				}
-			}
-		}(i)
+		rf.replicateEnteriesToFollower(entries, i)
 	}
 }
 
@@ -96,9 +83,9 @@ func (rf *Raft) setFollowerIndexes() {
 }
 
 // needs to be called with rf.mu locked
-func (rf *Raft) makeAppendEntryArgs(peer int, entries []LogEntry) AppendEntryArgs {
-	prevLogIndex := max(0, rf.nextIndex[peer]-1)
-	return AppendEntryArgs{
+func (rf *Raft) replicateEnteriesToFollower(entries []LogEntry, follower int) {
+	prevLogIndex := max(0, rf.nextIndex[follower]-1)
+	a := AppendEntryArgs{
 		Term:         rf.currentTerm,
 		LeaderId:     rf.me,
 		PrevLogIndex: prevLogIndex,
@@ -106,6 +93,17 @@ func (rf *Raft) makeAppendEntryArgs(peer int, entries []LogEntry) AppendEntryArg
 		LeaderCommit: rf.commitIndex,
 		Entries:      entries,
 	}
+	r := AppendEntryReply{}
+
+	go func() {
+		if ok := rf.sendAppendEntry(follower, &a, &r); ok {
+			rf.appendReplyCh <- AppendEntryResult{
+				PeerId:           follower,
+				Entries:          entries,
+				AppendEntryReply: r,
+			}
+		}
+	}()
 }
 
 func (rf *Raft) receiveAppendReply() {
@@ -134,40 +132,40 @@ func (rf *Raft) receiveAppendReply() {
 		)
 
 		// step down if we get a higher term
-		if rf.currentTerm < r.Response.Term {
+		if rf.currentTerm < r.Term {
 			rf.logger.Warn("stepping down due to higher term",
 				"currentTerm", rf.currentTerm,
-				"newTerm", r.Response.Term)
-			rf.increaseTerm(r.Response.Term)
+				"newTerm", r.Term)
+			rf.increaseTerm(r.Term)
 			rf.transition(Follower)
 			rf.mu.Unlock()
 			return
 		}
 
 		// reject response from an older term
-		if rf.currentTerm != r.Response.Term {
+		if rf.currentTerm != r.Term {
 			rf.logger.Warn("discarding stale reply",
 				"currentTerm", rf.currentTerm,
-				"replyTerm", r.Response.Term,
+				"replyTerm", r.Term,
 				"result", r,
 			)
 			rf.mu.Unlock()
-			return
+			continue
 		}
 
-		if r.Response.Success {
+		if r.Success {
 			// not a heartbeat
 			if len(r.Entries) > 0 {
 				mi := maxIndex(r.Entries)
 				rf.logger.Debug("append entry success reply",
 					"currentTerm", rf.currentTerm,
-					"from", r.Server,
+					"from", r.PeerId,
 					"maxIndex", mi,
-					"nextIndex", rf.nextIndex[r.Server],
-					"matchIndex", rf.matchIndex[r.Server],
+					"nextIndex", rf.nextIndex[r.PeerId],
+					"matchIndex", rf.matchIndex[r.PeerId],
 				)
-				rf.matchIndex[r.Server] = mi
-				rf.nextIndex[r.Server] = mi + 1
+				rf.matchIndex[r.PeerId] = mi
+				rf.nextIndex[r.PeerId] = mi + 1
 
 				for _, e := range r.Entries {
 					have[e.Id]++
@@ -177,35 +175,49 @@ func (rf *Raft) receiveAppendReply() {
 						if rf.currentTerm != e.Term {
 							rf.logger.Warn("term mismatch pre-apply",
 								"currentTerm", rf.currentTerm,
-								"peer", r.Server,
+								"peer", r.PeerId,
 								"commitIndex", rf.commitIndex,
 								"lastApplied", rf.lastApplied,
 								"entry", e,
 							)
+
+							continue
 						}
 
 						rf.commitIndex = max(rf.commitIndex, e.Id)
 					}
 				}
 			}
-
-			// send committed logs to apply chan
-			for rf.commitIndex > rf.lastApplied {
-				rf.lastApplied++
-				rf.applyCh <- raftapi.ApplyMsg{
-					CommandValid: true,
-					Command:      rf.logs[rf.lastApplied].Command,
-					CommandIndex: int(rf.lastApplied),
-				}
-				rf.logger.Info("entry replicated, sending to app",
-					"currentTerm", rf.currentTerm,
-					"lastApplied", rf.lastApplied,
-					"entry", rf.logs[rf.lastApplied],
-				)
-			}
 		} else {
+			// lagging follower conflict resolution
+			if r.XLen > 0 {
+				// Case 3: Follower's log shorter than leader's
+				rf.nextIndex[r.PeerId] = r.XLen
+			} else {
+				// Find last occurrence of XTerm in leader's log
+				lastXTermIndex := -1
+				for i := len(rf.logs) - 1; i >= 0; i-- {
+					if rf.logs[i].Term == r.XTerm {
+						lastXTermIndex = i
+						break
+					}
+				}
+
+				if lastXTermIndex != -1 {
+					// Case 2: Leader has XTerm entries
+					rf.nextIndex[r.PeerId] = lastXTermIndex + 1
+				} else {
+					// Case 1: Leader doesn't have XTerm
+					rf.nextIndex[r.PeerId] = r.XIndex
+				}
+			}
+
 			// follower is behind, decrement nextIndex
-			rf.nextIndex[r.Server] = max(0, rf.nextIndex[r.Server]-1)
+			// rf.nextIndex[r.PeerId] = max(0, rf.nextIndex[r.PeerId]-1)
+
+			// send logs immediately
+			entries := rf.getEntriesForFollower(r.PeerId)
+			rf.replicateEnteriesToFollower(entries, r.PeerId)
 		}
 
 		rf.mu.Unlock()

@@ -9,6 +9,7 @@ package raft
 import (
 	//	"bytes"
 
+	"context"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -37,13 +38,16 @@ type Raft struct {
 	lastBeat time.Time
 
 	// channels
-	voteReplyCh   chan RequestVoteReply  // candidate
+	voteReplyCh   chan RequestVoteResult // candidate
 	appendReplyCh chan AppendEntryResult //leader
 	applyCh       chan raftapi.ApplyMsg  //all
 
+	// context
+	voteCancel context.CancelFunc
+
 	// persistent state: all servers
 	currentTerm int
-	votedFor    *int
+	votedFor    int
 	logs        map[int]LogEntry
 	logIndexes  []int
 
@@ -182,16 +186,15 @@ func Make(
 	rf.persister = persister
 	rf.me = me
 
-	// TODO: Your initialization code here (3A, 3B, 3C).
 	rf.logs = map[int]LogEntry{0: {Id: 0, Command: nil, Term: 0}}
 	rf.logIndexes = []int{0}
 	rf.nodeRole = Follower
 	rf.currentTerm = 0
-	rf.votedFor = nil
+	rf.votedFor = -1
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 
-	rf.voteReplyCh = make(chan RequestVoteReply)
+	rf.voteReplyCh = make(chan RequestVoteResult)
 	rf.appendReplyCh = make(chan AppendEntryResult)
 	rf.applyCh = applyCh
 
@@ -205,14 +208,6 @@ func Make(
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
-	go rf.waitForVotes()
-	go rf.receiveAppendReply()
 
 	return rf
-}
-
-// needs to be called with rf.mu locked
-func (rf *Raft) getLastLogEntry() LogEntry {
-	li := rf.logIndexes[len(rf.logIndexes)-1]
-	return rf.logs[li]
 }

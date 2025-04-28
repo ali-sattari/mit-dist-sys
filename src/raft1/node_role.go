@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"slices"
 	"time"
+
+	"6.5840/raftapi"
 )
 
 type NodeRole string
@@ -16,9 +18,9 @@ const (
 )
 
 const electionTimeout = 250 // milliseconds
-const electionJitter = 200  // milliseconds
+const electionJitter = 900  // milliseconds
 const stateLoopInterval = time.Millisecond * 10
-const heartbeatInterval = time.Millisecond * 150
+const heartbeatInterval = time.Millisecond * 100
 
 // Transition table
 var validTransitions = map[NodeRole][]NodeRole{
@@ -55,7 +57,7 @@ func (rf *Raft) transition(newState NodeRole) error {
 		return fmt.Errorf("invalid transition %s -> %s", rf.nodeRole, newState)
 	}
 
-	rf.logger.Debug("state transition",
+	rf.logger.Info("state transition",
 		"currentTerm", rf.currentTerm,
 		"from", rf.nodeRole,
 		"to", newState)
@@ -67,7 +69,9 @@ func (rf *Raft) transition(newState NodeRole) error {
 	case Candidate:
 		// anything?
 	case Leader:
+		go rf.receiveAppendReply()
 		rf.setFollowerIndexes()
+		rf.replicateLogEntries(true) // send the first heartbeat immediately
 	}
 
 	rf.nodeRole = newState
@@ -98,8 +102,10 @@ func (rf *Raft) ticker() {
 			}
 
 		case Leader:
-			rf.replicateLogEntries()
+			rf.replicateLogEntries(false)
 		}
+
+		rf.sendCommittedToApp()
 
 		rf.mu.Unlock()
 		time.Sleep(stateLoopInterval)
@@ -117,10 +123,35 @@ func (rf *Raft) isElectionTimedout() bool {
 // needs to be called with rf.mu locked
 func (rf *Raft) increaseTerm(newTerm int) {
 	rf.currentTerm = newTerm
-	rf.votedFor = nil
+	rf.votedFor = -1
 }
 
 // needs to be called with rf.mu locked
 func (rf *Raft) needsElection() bool {
-	return rf.votedFor == nil || rf.isElectionTimedout()
+	return rf.votedFor == -1 || rf.isElectionTimedout()
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) getLastLogEntry() LogEntry {
+	// li := rf.logIndexes[len(rf.logIndexes)-1]
+	li := len(rf.logs) - 1
+	return rf.logs[li]
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) sendCommittedToApp() {
+	for rf.commitIndex > rf.lastApplied {
+		rf.lastApplied++
+		rf.applyCh <- raftapi.ApplyMsg{
+			CommandValid: true,
+			Command:      rf.logs[rf.lastApplied].Command,
+			CommandIndex: int(rf.lastApplied),
+		}
+		rf.logger.Info("sent committed to app",
+			"currentTerm", rf.currentTerm,
+			"commitIndex", rf.commitIndex,
+			"lastApplied", rf.lastApplied,
+			"entry", rf.logs[rf.lastApplied],
+		)
+	}
 }

@@ -40,7 +40,3 @@ Very useful [blog post](https://thesquareplanet.com/blog/students-guide-to-raft/
 * Send each committed entry to applyChan for the application layer
   * A log entry is committed once the leader that created the entry has replicated it on a majority of the servers
 * Start log at index 0, because easy
-
-* flappy tests:
-  * TestFailNoAgree3B
-  * TestBackup3B

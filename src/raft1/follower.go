@@ -1,10 +1,7 @@
 package raft
 
 import (
-	"fmt"
 	"time"
-
-	"6.5840/raftapi"
 )
 
 func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
@@ -31,16 +28,35 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 
 	// only reset if rpc is valid
 	rf.lastBeat = time.Now()
-	rf.votedFor = nil
+	rf.votedFor = -1
 
 	// fig 2: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
-	if l, ok := rf.logs[args.PrevLogIndex]; !ok || l.Term != args.PrevLogTerm {
-		rf.logger.Info("rejecting entry, log inconsistency",
+	l, ok := rf.logs[args.PrevLogIndex]
+	if !ok {
+		rf.logger.Info("rejecting entry, log length mismatch",
+			"currentTerm", rf.currentTerm,
+			"args", args,
+			"len", len(rf.logs),
+			"logs", rf.logs,
+		)
+		reply.Success = false
+		reply.XLen = len(rf.logs)
+		return
+	}
+	if l.Term != args.PrevLogTerm {
+		rf.logger.Info("rejecting entry, log term mismatch",
 			"currentTerm", rf.currentTerm,
 			"args", args,
 			"logs", rf.logs,
 		)
 		reply.Success = false
+		reply.XTerm = rf.logs[args.PrevLogIndex].Term
+		for i := args.PrevLogIndex; i >= 0; i-- {
+			if rf.logs[i].Term != reply.XTerm {
+				reply.XIndex = i + 1
+				break
+			}
+		}
 		return
 	}
 
@@ -71,22 +87,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	if rf.commitIndex < args.LeaderCommit {
 		ll := rf.getLastLogEntry()
 		rf.commitIndex = min(args.LeaderCommit, ll.Id)
-	}
-
-	// send committed to apply chan
-	for rf.commitIndex > rf.lastApplied {
-		rf.lastApplied++
-		rf.applyCh <- raftapi.ApplyMsg{
-			CommandValid: true,
-			Command:      rf.logs[rf.lastApplied].Command,
-			CommandIndex: int(rf.lastApplied),
-		}
-		rf.logger.Debug("sent committed to app",
-			"currentTerm", rf.currentTerm,
-			"commitIndex", rf.commitIndex,
-			"lastApplied", rf.lastApplied,
-			"entry", rf.logs[rf.lastApplied],
-		)
 	}
 
 	if rf.nodeRole != Follower {
@@ -139,41 +139,31 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	reply.Term = rf.currentTerm
 
-	if rf.nodeRole == Leader {
-		// no need to further process this lagging request
-		reply.VoteGranted = false
-		return
-	}
-
 	ll := rf.getLastLogEntry()
-	var vf string
-	if rf.votedFor != nil {
-		vf = fmt.Sprintf("%v", *rf.votedFor)
-	}
-	if rf.votedFor == nil || rf.votedFor == &args.CandidateId {
-		if args.LastLogTerm > ll.Term ||
-			(args.LastLogTerm == ll.Term && args.LastLogIndex >= ll.Id) {
+	if args.LastLogTerm > ll.Term ||
+		(args.LastLogTerm == ll.Term && args.LastLogIndex >= ll.Id) {
+		if rf.votedFor == -1 {
 			rf.logger.Info("granting vote",
 				"currentTerm", rf.currentTerm,
 				"candidate", args.CandidateId)
 			reply.VoteGranted = true
-			rf.votedFor = &args.CandidateId
+			rf.votedFor = args.CandidateId
 
 			// only reset timer when grating vote, not on other cases
 			// from https://thesquareplanet.com/blog/students-guide-to-raft/
 			rf.lastBeat = time.Now()
 		} else {
-			rf.logger.Warn("rejecting vote, log mismatch",
+			rf.logger.Debug("already voted",
 				"currentTerm", rf.currentTerm,
-				"follower", ll,
-				"args", args)
-			reply.VoteGranted = false
+				"votedFor", rf.votedFor,
+				"candidate", args.CandidateId)
+			reply.VoteGranted = (rf.votedFor == args.CandidateId)
 		}
 	} else {
-		rf.logger.Debug("already voted",
+		rf.logger.Warn("rejecting vote, log mismatch",
 			"currentTerm", rf.currentTerm,
-			"votedFor", vf,
-			"candidate", args.CandidateId)
+			"follower", ll,
+			"args", args)
 		reply.VoteGranted = false
 	}
 }
