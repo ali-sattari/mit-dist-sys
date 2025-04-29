@@ -37,6 +37,10 @@ Very useful [blog post](https://thesquareplanet.com/blog/students-guide-to-raft/
 
 ### 3B: Log
 
-* Send each committed entry to applyChan for the application layer
-  * A log entry is committed once the leader that created the entry has replicated it on a majority of the servers
 * Start log at index 0, because easy
+* Two category of tasks for the state machine
+  * State transition tasks (e.g. election when follower -> candidate)
+  * Periodic tasks (e.g. heartbeat for leader)
+* Unaccounted go routines haunted me for some time (`waitForVotes` specially)
+* Followers know a log entry is committed once they see a higher `commitIndex` from the leader in RPCs
+* I did the log back track optimization with `XTerm` and co to make some tests run faster
