@@ -22,8 +22,8 @@ func (rf *Raft) startElection() {
 
 	go rf.waitForVotes(ctx)
 
-	rf.currentTerm++
-	rf.votedFor = rf.me
+	rf.increaseTerm(rf.currentTerm + 1)
+	rf.castVote(rf.me)
 	rf.lastBeat = time.Now()
 
 	ll := rf.getLastLogEntry()

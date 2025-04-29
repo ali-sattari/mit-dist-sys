@@ -28,7 +28,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 
 	// only reset if rpc is valid
 	rf.lastBeat = time.Now()
-	rf.votedFor = -1
+	rf.resetVotedFor()
 
 	// fig 2: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
 	l, ok := rf.logs[args.PrevLogIndex]
@@ -79,8 +79,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 			}
 		}
 
-		rf.logs[e.Id] = e
-		rf.logIndexes = append(rf.logIndexes, e.Id)
+		rf.addEntryToLog(e)
 	}
 
 	// update commit index
@@ -147,7 +146,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 				"currentTerm", rf.currentTerm,
 				"candidate", args.CandidateId)
 			reply.VoteGranted = true
-			rf.votedFor = args.CandidateId
+			rf.castVote(args.CandidateId)
 
 			// only reset timer when grating vote, not on other cases
 			// from https://thesquareplanet.com/blog/students-guide-to-raft/
@@ -168,6 +167,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 }
 
+// needs to be called with rf.mu locked
 func (rf *Raft) deleteLogEntries(from int) {
 	f := rf.logIndexes[:0]
 	for _, idx := range rf.logIndexes {
@@ -178,4 +178,6 @@ func (rf *Raft) deleteLogEntries(from int) {
 		}
 	}
 	rf.logIndexes = f
+
+	rf.persist()
 }

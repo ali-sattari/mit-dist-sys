@@ -17,8 +17,7 @@ func (rf *Raft) sendCommand(cmd any) int {
 		Term:    rf.currentTerm,
 		Command: cmd,
 	}
-	rf.logs[l.Id] = l
-	rf.logIndexes = append(rf.logIndexes, l.Id)
+	rf.addEntryToLog(l)
 
 	rf.logger.Info("received a command",
 		"currentTerm", rf.currentTerm,

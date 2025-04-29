@@ -9,6 +9,7 @@ package raft
 import (
 	//	"bytes"
 
+	"bytes"
 	"context"
 	"log/slog"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	//	"6.5840/labgob"
+	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raftapi"
 	tester "6.5840/tester1"
@@ -77,14 +79,16 @@ func (rf *Raft) GetState() (int, bool) {
 // after you've implemented snapshots, pass the current snapshot
 // (or nil if there's not yet a snapshot).
 func (rf *Raft) persist() {
-	// TODO: Your code here (3C).
-	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// raftstate := w.Bytes()
-	// rf.persister.Save(raftstate, nil)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.logs)
+	e.Encode(rf.logIndexes)
+
+	raftstate := w.Bytes()
+	rf.persister.Save(raftstate, nil)
 }
 
 // restore previously persisted state.
@@ -92,19 +96,38 @@ func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	}
-	// Your code here (3C).
-	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+
+	var currentTerm int
+	if err := d.Decode(&currentTerm); err == nil {
+		rf.currentTerm = currentTerm
+	} else {
+		rf.logger.Error("error decoding currentTerm state", "msg", err.Error())
+	}
+
+	var votedFor int
+	if err := d.Decode(&votedFor); err == nil {
+		rf.votedFor = votedFor
+	} else {
+		rf.logger.Error("error decoding votedFor state", "msg", err.Error())
+	}
+
+	var logs map[int]LogEntry
+	if err := d.Decode(&logs); err == nil {
+		rf.logs = logs
+	} else {
+		rf.logger.Error("error decoding logs state", "msg", err.Error())
+	}
+
+	var logIndexes []int
+	if err := d.Decode(&logIndexes); err == nil {
+		rf.logIndexes = logIndexes
+	} else {
+		rf.logger.Error("error decoding logIndexes state", "msg", err.Error())
+	}
+
 }
 
 // how many bytes in Raft's persisted log?
