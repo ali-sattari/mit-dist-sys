@@ -28,11 +28,9 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 
 	// only reset if rpc is valid
 	rf.lastBeat = time.Now()
-	rf.resetVotedFor()
 
 	// fig 2: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
-	l, ok := rf.logs[args.PrevLogIndex]
-	if !ok {
+	if args.PrevLogIndex >= len(rf.logs) {
 		rf.logger.Info("rejecting entry, log length mismatch",
 			"currentTerm", rf.currentTerm,
 			"args", args,
@@ -43,7 +41,8 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 		reply.XLen = len(rf.logs)
 		return
 	}
-	if l.Term != args.PrevLogTerm {
+
+	if rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
 		rf.logger.Info("rejecting entry, log term mismatch",
 			"currentTerm", rf.currentTerm,
 			"args", args,
@@ -51,12 +50,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 		)
 		reply.Success = false
 		reply.XTerm = rf.logs[args.PrevLogIndex].Term
-		for i := args.PrevLogIndex; i >= 0; i-- {
-			if rf.logs[i].Term != reply.XTerm {
-				reply.XIndex = i + 1
-				break
-			}
-		}
+		reply.XIndex = rf.findFirstIndexForTerm(reply.XTerm)
 		return
 	}
 
@@ -95,7 +89,10 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 			"leader", args.LeaderId)
 		rf.transition(Follower)
 	}
-	rf.increaseTerm(args.Term)
+
+	if args.Term > rf.currentTerm {
+		rf.increaseTerm(args.Term)
+	}
 
 	reply.Term = rf.currentTerm
 	reply.Success = true
@@ -179,5 +176,5 @@ func (rf *Raft) deleteLogEntries(from int) {
 	}
 	rf.logIndexes = f
 
-	rf.persist()
+	// rf.persist()
 }

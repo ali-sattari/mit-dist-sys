@@ -15,8 +15,8 @@ var LOG_LEVEL slog.Level = slog.LevelWarn
 
 func (rf *Raft) setupLogging() {
 	lvl := getLogLevel()
-	fileHandler := slog.NewTextHandler(getLogOutputPath(rf.me), &slog.HandlerOptions{
-		Level:     lvl,
+	fileHandler := slog.NewJSONHandler(getLogOutputPath(rf.me), &slog.HandlerOptions{
+		Level:     lvl - 4,
 		AddSource: true,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.SourceKey {

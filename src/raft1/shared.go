@@ -72,3 +72,15 @@ func (rf *Raft) addEntryToLog(e LogEntry) {
 
 	rf.persist()
 }
+
+// needs to be called with rf.mu locked
+func (rf *Raft) findFirstIndexForTerm(t int) int {
+	l := -1
+	for i := len(rf.logs) - 1; i >= 0; i-- {
+		if rf.logs[i].Term == t {
+			l = i
+			break
+		}
+	}
+	return l
+}

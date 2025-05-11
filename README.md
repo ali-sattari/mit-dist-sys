@@ -35,7 +35,7 @@ Very useful [blog post](https://thesquareplanet.com/blog/students-guide-to-raft/
 * Heartbeat through light-weight AppendEntry RPC
 * Each term can have at most one leader -> why candidates increment term at start of new election round
 
-### 3B: Log
+### 3B: Log Replication
 
 * Start log at index 0, because easy
 * Two category of tasks for the state machine
@@ -44,3 +44,5 @@ Very useful [blog post](https://thesquareplanet.com/blog/students-guide-to-raft/
 * Unaccounted go routines haunted me for some time (`waitForVotes` specially)
 * Followers know a log entry is committed once they see a higher `commitIndex` from the leader in RPCs
 * I did the log back track optimization with `XTerm` and co to make some tests run faster
+
+### 3C: Persistence

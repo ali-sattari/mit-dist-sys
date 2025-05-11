@@ -89,6 +89,13 @@ func (rf *Raft) persist() {
 
 	raftstate := w.Bytes()
 	rf.persister.Save(raftstate, nil)
+
+	rf.logger.Info("saved persistent state",
+		"currentTerm", rf.currentTerm,
+		"votedFor", rf.votedFor,
+		"logIndexes", rf.logIndexes,
+		// "state", w.String(),
+	)
 }
 
 // restore previously persisted state.
@@ -100,34 +107,28 @@ func (rf *Raft) readPersist(data []byte) {
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
 
-	var currentTerm int
-	if err := d.Decode(&currentTerm); err == nil {
-		rf.currentTerm = currentTerm
-	} else {
+	if err := d.Decode(&rf.currentTerm); err != nil {
 		rf.logger.Error("error decoding currentTerm state", "msg", err.Error())
 	}
 
-	var votedFor int
-	if err := d.Decode(&votedFor); err == nil {
-		rf.votedFor = votedFor
-	} else {
+	if err := d.Decode(&rf.votedFor); err != nil {
 		rf.logger.Error("error decoding votedFor state", "msg", err.Error())
 	}
 
-	var logs map[int]LogEntry
-	if err := d.Decode(&logs); err == nil {
-		rf.logs = logs
-	} else {
+	if err := d.Decode(&rf.logs); err != nil {
 		rf.logger.Error("error decoding logs state", "msg", err.Error())
 	}
 
-	var logIndexes []int
-	if err := d.Decode(&logIndexes); err == nil {
-		rf.logIndexes = logIndexes
-	} else {
+	if err := d.Decode(&rf.logIndexes); err != nil {
 		rf.logger.Error("error decoding logIndexes state", "msg", err.Error())
 	}
 
+	rf.logger.Info("loaded persistent state",
+		"currentTerm", rf.currentTerm,
+		"votedFor", rf.votedFor,
+		"logIndexes", rf.logIndexes,
+		"logs", rf.logs,
+	)
 }
 
 // how many bytes in Raft's persisted log?
@@ -167,7 +168,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		return 0, 0, false
 	}
 
-	return int(rf.sendCommand(command)), int(rf.currentTerm), true
+	return rf.sendCommand(command), rf.currentTerm, true
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
@@ -224,10 +225,10 @@ func Make(
 	rf.nextIndex = make(map[int]int)
 	rf.matchIndex = make(map[int]int)
 
+	rf.setupLogging()
+
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-
-	rf.setupLogging()
 
 	// start ticker goroutine to start elections
 	go rf.ticker()

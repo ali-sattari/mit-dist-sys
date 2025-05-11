@@ -183,6 +183,10 @@ func (rf *Raft) receiveAppendReply() {
 							continue
 						}
 
+						rf.logger.Info("advancing commitIndex",
+							"old", rf.commitIndex,
+							"new", max(rf.commitIndex, e.Id),
+						)
 						rf.commitIndex = max(rf.commitIndex, e.Id)
 					}
 				}
@@ -194,13 +198,7 @@ func (rf *Raft) receiveAppendReply() {
 				rf.nextIndex[r.PeerId] = r.XLen
 			} else {
 				// Find last occurrence of XTerm in leader's log
-				lastXTermIndex := -1
-				for i := len(rf.logs) - 1; i >= 0; i-- {
-					if rf.logs[i].Term == r.XTerm {
-						lastXTermIndex = i
-						break
-					}
-				}
+				lastXTermIndex := rf.findFirstIndexForTerm(r.XTerm)
 
 				if lastXTermIndex != -1 {
 					// Case 2: Leader has XTerm entries
