@@ -14,10 +14,10 @@ const (
 	Leader    NodeRole = "leader"
 )
 
-const electionTimeout = 250 // milliseconds
-const electionJitter = 900  // milliseconds
+const electionTimeout = 150 // milliseconds
+const electionJitter = 300  // milliseconds
 const stateLoopInterval = time.Millisecond * 10
-const heartbeatInterval = time.Millisecond * 100
+const heartbeatInterval = time.Millisecond * 50
 
 // Transition table
 var validTransitions = map[NodeRole][]NodeRole{

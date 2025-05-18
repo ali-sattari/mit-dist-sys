@@ -66,6 +66,9 @@ func (rf *Raft) replicateLogEntries(force bool) {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) getEntriesForFollower(server int) []LogEntry {
+	// if rf.nextIndex[server] >= len(rf.logs) {
+	// 	return []LogEntry{}
+	// }
 	return rf.logs[rf.nextIndex[server]:]
 }
 
@@ -154,6 +157,7 @@ func (rf *Raft) receiveAppendReply() {
 					"currentTerm", rf.currentTerm,
 					"from", r.PeerId,
 					"maxIndex", mi,
+					"len", len(r.Entries),
 					"nextIndex", rf.nextIndex[r.PeerId],
 					"matchIndex", rf.matchIndex[r.PeerId],
 				)

@@ -75,6 +75,9 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 					"incoming", e,
 					"existing", ll)
 				rf.deleteLogEntries(e.Id)
+			} else {
+				// same log id and term, must be duplicate message, discard
+				continue
 			}
 		}
 

@@ -50,10 +50,11 @@ func (rf *Raft) getLastLogEntry() LogEntry {
 func (rf *Raft) sendCommittedToApp() {
 	for rf.commitIndex > rf.lastApplied {
 		rf.lastApplied++
+		l := rf.logs[rf.lastApplied]
 		rf.applyCh <- raftapi.ApplyMsg{
 			CommandValid: true,
-			Command:      rf.logs[rf.lastApplied].Command,
-			CommandIndex: int(rf.lastApplied),
+			Command:      l.Command,
+			CommandIndex: l.Id,
 		}
 		rf.logger.Info("sent committed to app",
 			"currentTerm", rf.currentTerm,
