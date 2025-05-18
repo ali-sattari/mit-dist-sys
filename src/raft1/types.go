@@ -65,7 +65,7 @@ func (l LogEntry) String() string {
 func (a AppendEntryArgs) String() string {
 	return fmt.Sprintf(
 		"AppendEntryArgs{Term:%d, LeaderId:%d, PrevLogIdx:%d, PrevLogTerm:%d, LeaderCommit:%d, Entries:%+v}",
-		a.Term, a.LeaderId, a.PrevLogIndex, a.PrevLogTerm, a.LeaderCommit, a.Entries,
+		a.Term, a.LeaderId, a.PrevLogIndex, a.PrevLogTerm, a.LeaderCommit, len(a.Entries),
 	)
 }
 
@@ -76,7 +76,7 @@ func (r AppendEntryReply) String() string {
 func (x AppendEntryResult) String() string {
 	return fmt.Sprintf(
 		"AppendEntryResult{PeerID:%d, Rep:%+v, Logs:%+v}",
-		x.PeerId, x.AppendEntryReply, x.Entries,
+		x.PeerId, x.AppendEntryReply, len(x.Entries),
 	)
 }
 

@@ -29,24 +29,26 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	// only reset if rpc is valid
 	rf.lastBeat = time.Now()
 
+	reply.XLen = len(rf.logs)
+	reply.XTerm = -1
+	reply.XIndex = -1
+
 	// fig 2: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
 	if args.PrevLogIndex >= len(rf.logs) {
 		rf.logger.Info("rejecting entry, log length mismatch",
 			"currentTerm", rf.currentTerm,
 			"args", args,
 			"len", len(rf.logs),
-			"logs", rf.logs,
 		)
 		reply.Success = false
-		reply.XLen = len(rf.logs)
 		return
 	}
 
 	if rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
 		rf.logger.Info("rejecting entry, log term mismatch",
 			"currentTerm", rf.currentTerm,
+			"conflict", rf.logs[args.PrevLogIndex],
 			"args", args,
-			"logs", rf.logs,
 		)
 		reply.Success = false
 		reply.XTerm = rf.logs[args.PrevLogIndex].Term
@@ -64,11 +66,14 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 
 	// append entries
 	for _, e := range args.Entries {
-		if l, ok := rf.logs[e.Id]; ok {
-			if l.Term != e.Term { // 5.3
+		if len(rf.logs) > e.Id {
+			ll := rf.logs[e.Id]
+			if ll.Term != e.Term { // 5.3
 				rf.logger.Info("deleting log entries",
 					"currentTerm", rf.currentTerm,
-					"fromIndex", e.Id)
+					"fromIndex", e.Id,
+					"incoming", e,
+					"existing", ll)
 				rf.deleteLogEntries(e.Id)
 			}
 		}
@@ -96,12 +101,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 
 	reply.Term = rf.currentTerm
 	reply.Success = true
-
-	// rf.logger.Debug("processed append entry",
-	// 	"commitIndex", rf.commitIndex,
-	// 	"lastApplied", rf.lastApplied,
-	// 	// "logIndexs", rf.logIndexes,
-	// )
 }
 
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
@@ -166,15 +165,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) deleteLogEntries(from int) {
-	f := rf.logIndexes[:0]
-	for _, idx := range rf.logIndexes {
-		if idx < from {
-			f = append(f, idx)
-		} else {
-			delete(rf.logs, idx)
-		}
-	}
-	rf.logIndexes = f
-
-	// rf.persist()
+	rf.logs = rf.logs[:from]
+	rf.persist()
 }

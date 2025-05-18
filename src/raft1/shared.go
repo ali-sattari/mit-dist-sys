@@ -42,7 +42,6 @@ func (rf *Raft) needsElection() bool {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) getLastLogEntry() LogEntry {
-	// li := rf.logIndexes[len(rf.logIndexes)-1]
 	li := len(rf.logs) - 1
 	return rf.logs[li]
 }
@@ -67,14 +66,24 @@ func (rf *Raft) sendCommittedToApp() {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) addEntryToLog(e LogEntry) {
-	rf.logs[e.Id] = e
-	rf.logIndexes = append(rf.logIndexes, e.Id)
-
+	rf.logs = append(rf.logs, e)
 	rf.persist()
 }
 
 // needs to be called with rf.mu locked
 func (rf *Raft) findFirstIndexForTerm(t int) int {
+	l := -1
+	for i := 0; i < len(rf.logs); i++ {
+		if rf.logs[i].Term == t {
+			l = i
+			break
+		}
+	}
+	return l
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) findLastIndexForTerm(t int) int {
 	l := -1
 	for i := len(rf.logs) - 1; i >= 0; i-- {
 		if rf.logs[i].Term == t {

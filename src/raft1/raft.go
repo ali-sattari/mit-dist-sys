@@ -50,8 +50,7 @@ type Raft struct {
 	// persistent state: all servers
 	currentTerm int
 	votedFor    int
-	logs        map[int]LogEntry
-	logIndexes  []int
+	logs        []LogEntry
 
 	// volatile state: all servers
 	commitIndex int // index of highest log entry known to be committed
@@ -85,17 +84,15 @@ func (rf *Raft) persist() {
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
 	e.Encode(rf.logs)
-	e.Encode(rf.logIndexes)
 
 	raftstate := w.Bytes()
 	rf.persister.Save(raftstate, nil)
 
-	rf.logger.Info("saved persistent state",
-		"currentTerm", rf.currentTerm,
-		"votedFor", rf.votedFor,
-		"logIndexes", rf.logIndexes,
-		// "state", w.String(),
-	)
+	// rf.logger.Info("saved persistent state",
+	// 	"currentTerm", rf.currentTerm,
+	// 	"votedFor", rf.votedFor,
+	// 	"logs", len(rf.logs),
+	// )
 }
 
 // restore previously persisted state.
@@ -119,15 +116,10 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.logger.Error("error decoding logs state", "msg", err.Error())
 	}
 
-	if err := d.Decode(&rf.logIndexes); err != nil {
-		rf.logger.Error("error decoding logIndexes state", "msg", err.Error())
-	}
-
 	rf.logger.Info("loaded persistent state",
 		"currentTerm", rf.currentTerm,
 		"votedFor", rf.votedFor,
-		"logIndexes", rf.logIndexes,
-		"logs", rf.logs,
+		"logs", len(rf.logs),
 	)
 }
 
@@ -210,8 +202,7 @@ func Make(
 	rf.persister = persister
 	rf.me = me
 
-	rf.logs = map[int]LogEntry{0: {Id: 0, Command: nil, Term: 0}}
-	rf.logIndexes = []int{0}
+	rf.logs = []LogEntry{0: {Id: 0, Term: 0}}
 	rf.nodeRole = Follower
 	rf.currentTerm = 0
 	rf.votedFor = -1

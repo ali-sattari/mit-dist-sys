@@ -13,7 +13,7 @@ func (rf *Raft) sendAppendEntry(server int, args *AppendEntryArgs, reply *Append
 // needs to be called with rf.mu locked
 func (rf *Raft) sendCommand(cmd any) int {
 	l := LogEntry{
-		Id:      rf.logIndexes[len(rf.logs)-1] + 1,
+		Id:      len(rf.logs),
 		Term:    rf.currentTerm,
 		Command: cmd,
 	}
@@ -50,6 +50,7 @@ func (rf *Raft) replicateLogEntries(force bool) {
 				"currentTerm", rf.currentTerm,
 				"nextIndex", rf.nextIndex[i],
 				"matchIndex", rf.matchIndex[i],
+				"len", len(entries),
 			)
 		} else {
 			rf.logger.Debug(fmt.Sprintf("sending heartbeat to %d", i),
@@ -65,18 +66,13 @@ func (rf *Raft) replicateLogEntries(force bool) {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) getEntriesForFollower(server int) []LogEntry {
-	ls := []LogEntry{}
-	for _, l := range rf.logIndexes[rf.nextIndex[server]:] {
-		ls = append(ls, rf.logs[l])
-	}
-	return ls
+	return rf.logs[rf.nextIndex[server]:]
 }
 
 // needs to be called with rf.mu locked
 func (rf *Raft) setFollowerIndexes() {
-	li := rf.logIndexes[len(rf.logIndexes)-1]
 	for i := range rf.peers {
-		rf.nextIndex[i] = li + 1
+		rf.nextIndex[i] = len(rf.logs)
 		rf.matchIndex[i] = 0
 	}
 }
@@ -117,7 +113,6 @@ func (rf *Raft) receiveAppendReply() {
 				"currentTerm", rf.currentTerm,
 				"commitIndex", rf.commitIndex,
 				"reply", r,
-				"have", have,
 			)
 			rf.mu.Unlock()
 			return
@@ -127,7 +122,6 @@ func (rf *Raft) receiveAppendReply() {
 			"currentTerm", rf.currentTerm,
 			"commitIndex", rf.commitIndex,
 			"reply", r,
-			"have", have,
 		)
 
 		// step down if we get a higher term
@@ -193,24 +187,19 @@ func (rf *Raft) receiveAppendReply() {
 			}
 		} else {
 			// lagging follower conflict resolution
-			if r.XLen > 0 {
+			if r.XTerm == -1 {
 				// Case 3: Follower's log shorter than leader's
 				rf.nextIndex[r.PeerId] = r.XLen
 			} else {
-				// Find last occurrence of XTerm in leader's log
-				lastXTermIndex := rf.findFirstIndexForTerm(r.XTerm)
-
+				lastXTermIndex := rf.findLastIndexForTerm(r.XTerm)
 				if lastXTermIndex != -1 {
 					// Case 2: Leader has XTerm entries
-					rf.nextIndex[r.PeerId] = lastXTermIndex + 1
+					rf.nextIndex[r.PeerId] = lastXTermIndex
 				} else {
 					// Case 1: Leader doesn't have XTerm
 					rf.nextIndex[r.PeerId] = r.XIndex
 				}
 			}
-
-			// follower is behind, decrement nextIndex
-			// rf.nextIndex[r.PeerId] = max(0, rf.nextIndex[r.PeerId]-1)
 
 			// send logs immediately
 			entries := rf.getEntriesForFollower(r.PeerId)
