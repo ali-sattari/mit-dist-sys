@@ -49,6 +49,9 @@ func (rf *Raft) getLastLogEntry() LogEntry {
 // needs to be called with rf.mu locked
 func (rf *Raft) sendCommittedToApp() {
 	for rf.commitIndex > rf.lastApplied {
+		if rf.killed() {
+			break
+		}
 		rf.lastApplied++
 		l := rf.logs[rf.lastApplied]
 		rf.applyCh <- raftapi.ApplyMsg{

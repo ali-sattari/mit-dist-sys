@@ -2,6 +2,7 @@ package raft
 
 import (
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -75,6 +76,9 @@ func (rf *Raft) getEntriesForFollower(server int) []LogEntry {
 // needs to be called with rf.mu locked
 func (rf *Raft) setFollowerIndexes() {
 	for i := range rf.peers {
+		if i == rf.me {
+			continue
+		}
 		rf.nextIndex[i] = len(rf.logs)
 		rf.matchIndex[i] = 0
 	}
@@ -105,9 +109,6 @@ func (rf *Raft) replicateEnteriesToFollower(entries []LogEntry, follower int) {
 }
 
 func (rf *Raft) receiveAppendReply() {
-	have := map[int]int{}
-	need := int(len(rf.peers) / 2)
-
 	for r := range rf.appendReplyCh {
 		rf.mu.Lock()
 
@@ -163,32 +164,9 @@ func (rf *Raft) receiveAppendReply() {
 				)
 				rf.matchIndex[r.PeerId] = mi
 				rf.nextIndex[r.PeerId] = mi + 1
-
-				for _, e := range r.Entries {
-					have[e.Id]++
-
-					if have[e.Id] >= need && rf.commitIndex < e.Id {
-						// check if term is still valid (fig 8)
-						if rf.currentTerm != e.Term {
-							rf.logger.Warn("term mismatch pre-apply",
-								"currentTerm", rf.currentTerm,
-								"peer", r.PeerId,
-								"commitIndex", rf.commitIndex,
-								"lastApplied", rf.lastApplied,
-								"entry", e,
-							)
-
-							continue
-						}
-
-						rf.logger.Info("advancing commitIndex",
-							"old", rf.commitIndex,
-							"new", max(rf.commitIndex, e.Id),
-						)
-						rf.commitIndex = max(rf.commitIndex, e.Id)
-					}
-				}
 			}
+
+			rf.maybeCommitEntries()
 		} else {
 			// lagging follower conflict resolution
 			if r.XTerm == -1 {
@@ -213,4 +191,30 @@ func (rf *Raft) receiveAppendReply() {
 		rf.mu.Unlock()
 	}
 
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) maybeCommitEntries() {
+	var matchIndexes []int
+
+	// always include the leader's own log length as if it were a matchIndex
+	matchIndexes = append(matchIndexes, len(rf.logs)-1)
+	for _, idx := range rf.matchIndex {
+		matchIndexes = append(matchIndexes, idx)
+	}
+	sort.Ints(matchIndexes)
+	// median of sorted match indexes is the same as majority
+	majorityIdx := matchIndexes[len(matchIndexes)/2]
+
+	if majorityIdx > rf.commitIndex {
+		// check if term is still valid (fig 8)
+		if rf.logs[majorityIdx].Term == rf.currentTerm {
+			rf.logger.Info("advancing commitIndex",
+				"old", rf.commitIndex,
+				"new", max(rf.commitIndex, majorityIdx),
+				"matchIndexes", matchIndexes,
+			)
+			rf.commitIndex = majorityIdx
+		}
+	}
 }
