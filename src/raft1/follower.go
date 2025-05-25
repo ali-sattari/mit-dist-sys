@@ -11,8 +11,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.logger.Debug("append entry request",
 		"currentTerm", rf.currentTerm,
 		"args", args,
-		// "logs", rf.logs,
-		// "logIndexs", rf.logIndexes,
 	)
 
 	// bad cases
@@ -29,29 +27,29 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	// only reset if rpc is valid
 	rf.lastBeat = time.Now()
 
-	reply.XLen = len(rf.logs)
+	reply.XLen = rf.getLogLen()
 	reply.XTerm = -1
 	reply.XIndex = -1
 
 	// fig 2: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
-	if args.PrevLogIndex >= len(rf.logs) {
+	if args.PrevLogIndex >= rf.getLogLen() {
 		rf.logger.Info("rejecting entry, log length mismatch",
 			"currentTerm", rf.currentTerm,
 			"args", args,
-			"len", len(rf.logs),
+			"len", rf.getLogLen(),
 		)
 		reply.Success = false
 		return
 	}
 
-	if rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
+	if rf.getLogEntry(args.PrevLogIndex).Term != args.PrevLogTerm {
 		rf.logger.Info("rejecting entry, log term mismatch",
 			"currentTerm", rf.currentTerm,
-			"conflict", rf.logs[args.PrevLogIndex],
+			"conflict", rf.getLogEntry(args.PrevLogIndex),
 			"args", args,
 		)
 		reply.Success = false
-		reply.XTerm = rf.logs[args.PrevLogIndex].Term
+		reply.XTerm = rf.getLogEntry(args.PrevLogIndex).Term
 		reply.XIndex = rf.findFirstIndexForTerm(reply.XTerm)
 		return
 	}
@@ -66,8 +64,8 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 
 	// append entries
 	for _, e := range args.Entries {
-		if len(rf.logs) > e.Id {
-			ll := rf.logs[e.Id]
+		if rf.getLogLen() > e.Id {
+			ll := rf.getLogEntry(e.Id)
 			if ll.Term != e.Term { // 5.3
 				rf.logger.Info("deleting log entries",
 					"currentTerm", rf.currentTerm,
@@ -168,6 +166,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) deleteLogEntries(from int) {
-	rf.logs = rf.logs[:from]
+	idx := from - rf.snapshotLastIndex
+	rf.logs = rf.logs[:idx]
 	rf.persist()
 }

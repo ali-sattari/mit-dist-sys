@@ -59,6 +59,11 @@ type Raft struct {
 	// volatile state: leader
 	nextIndex  map[int]int // for each server, index of the next log entry to send to that server
 	matchIndex map[int]int // for each server, index of highest log entry known to be replicated on server
+
+	// snapshot
+	snapshot          []byte
+	snapshotLastIndex int
+	snapshotlastTerm  int
 }
 
 // return currentTerm and whether this server
@@ -86,7 +91,7 @@ func (rf *Raft) persist() {
 	e.Encode(rf.logs)
 
 	raftstate := w.Bytes()
-	rf.persister.Save(raftstate, nil)
+	rf.persister.Save(raftstate, rf.snapshot)
 
 	// rf.logger.Info("saved persistent state",
 	// 	"currentTerm", rf.currentTerm,
@@ -135,8 +140,31 @@ func (rf *Raft) PersistBytes() int {
 // service no longer needs the log through (and including)
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
-	// Your code here (3D).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
+	// check if it is valid
+	if index <= rf.snapshotLastIndex || index > rf.commitIndex {
+		rf.logger.Warn("received invalid snapshot",
+			"index", index,
+			"lastLog", rf.getLastLogEntry(),
+		)
+		return
+	}
+
+	idx := index - rf.snapshotLastIndex
+	rf.logger.Info("received snapshot",
+		"index", index,
+		"lastLog", rf.logs[idx],
+	)
+
+	// apply snapshot
+	rf.snapshotLastIndex = index
+	rf.snapshotlastTerm = rf.logs[idx].Term
+	rf.logs = rf.logs[idx:]
+
+	// persist
+	rf.persist()
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
@@ -216,7 +244,12 @@ func Make(
 	rf.nextIndex = make(map[int]int)
 	rf.matchIndex = make(map[int]int)
 
+	rf.snapshot = []byte{}
+	rf.snapshotLastIndex = 0
+	rf.snapshotlastTerm = 0
+
 	rf.setupLogging()
+	setupProfiling()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())

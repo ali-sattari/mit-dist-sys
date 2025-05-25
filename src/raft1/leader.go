@@ -14,7 +14,7 @@ func (rf *Raft) sendAppendEntry(server int, args *AppendEntryArgs, reply *Append
 // needs to be called with rf.mu locked
 func (rf *Raft) sendCommand(cmd any) int {
 	l := LogEntry{
-		Id:      len(rf.logs),
+		Id:      rf.getLogLen(),
 		Term:    rf.currentTerm,
 		Command: cmd,
 	}
@@ -67,10 +67,8 @@ func (rf *Raft) replicateLogEntries(force bool) {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) getEntriesForFollower(server int) []LogEntry {
-	// if rf.nextIndex[server] >= len(rf.logs) {
-	// 	return []LogEntry{}
-	// }
-	return rf.logs[rf.nextIndex[server]:]
+	idx := rf.nextIndex[server] - rf.snapshotLastIndex
+	return rf.logs[idx:]
 }
 
 // needs to be called with rf.mu locked
@@ -79,7 +77,7 @@ func (rf *Raft) setFollowerIndexes() {
 		if i == rf.me {
 			continue
 		}
-		rf.nextIndex[i] = len(rf.logs)
+		rf.nextIndex[i] = rf.getLogLen()
 		rf.matchIndex[i] = 0
 	}
 }
@@ -91,7 +89,7 @@ func (rf *Raft) replicateEnteriesToFollower(entries []LogEntry, follower int) {
 		Term:         rf.currentTerm,
 		LeaderId:     rf.me,
 		PrevLogIndex: prevLogIndex,
-		PrevLogTerm:  rf.logs[prevLogIndex].Term,
+		PrevLogTerm:  rf.getLogEntry(prevLogIndex).Term,
 		LeaderCommit: rf.commitIndex,
 		Entries:      entries,
 	}
@@ -198,7 +196,7 @@ func (rf *Raft) maybeCommitEntries() {
 	var matchIndexes []int
 
 	// always include the leader's own log length as if it were a matchIndex
-	matchIndexes = append(matchIndexes, len(rf.logs)-1)
+	matchIndexes = append(matchIndexes, rf.getLogLen()-1)
 	for _, idx := range rf.matchIndex {
 		matchIndexes = append(matchIndexes, idx)
 	}
@@ -208,7 +206,7 @@ func (rf *Raft) maybeCommitEntries() {
 
 	if majorityIdx > rf.commitIndex {
 		// check if term is still valid (fig 8)
-		if rf.logs[majorityIdx].Term == rf.currentTerm {
+		if rf.getLogEntry(majorityIdx).Term == rf.currentTerm {
 			rf.logger.Info("advancing commitIndex",
 				"old", rf.commitIndex,
 				"new", max(rf.commitIndex, majorityIdx),

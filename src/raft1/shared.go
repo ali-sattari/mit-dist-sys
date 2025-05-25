@@ -47,6 +47,16 @@ func (rf *Raft) getLastLogEntry() LogEntry {
 }
 
 // needs to be called with rf.mu locked
+func (rf *Raft) getLogEntry(id int) LogEntry {
+	return rf.logs[id-rf.snapshotLastIndex]
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) getLogLen() int {
+	return rf.snapshotLastIndex + len(rf.logs)
+}
+
+// needs to be called with rf.mu locked
 func (rf *Raft) sendCommittedToApp() {
 	for rf.commitIndex > rf.lastApplied {
 		if rf.killed() {

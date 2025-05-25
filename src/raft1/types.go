@@ -42,6 +42,18 @@ type RequestVoteResult struct {
 	RequestVoteReply
 }
 
+type InstallSnapshotArgs struct {
+	Term              int
+	LeaderId          int
+	LastIncludedIndex int
+	LastIncludedTerm  int
+	Data              any
+}
+
+type InstallSnapshotReply struct {
+	Term int
+}
+
 type LogEntry struct {
 	Id      int
 	Term    int
@@ -96,4 +108,15 @@ func (x RequestVoteResult) String() string {
 		"RequestVoteResult{PeerID:%d, Rep:%+v}",
 		x.PeerId, x.RequestVoteReply,
 	)
+}
+
+func (a InstallSnapshotArgs) String() string {
+	return fmt.Sprintf(
+		"InstallSnapshotArgs{Term:%d, LeaderId:%d, LastIncludedIndex:%d, LastIncludedTerm:%d}",
+		a.Term, a.LeaderId, a.LastIncludedIndex, a.LastIncludedTerm,
+	)
+}
+
+func (r InstallSnapshotReply) String() string {
+	return fmt.Sprintf("InstallSnapshotReply{Term:%d}", r.Term)
 }
