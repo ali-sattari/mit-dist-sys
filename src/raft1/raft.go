@@ -253,7 +253,6 @@ func Make(
 	rf.snapshotlastTerm = 0
 
 	rf.setupLogging()
-	setupProfiling()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
