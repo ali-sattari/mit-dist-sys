@@ -43,6 +43,9 @@ func (rf *Raft) needsElection() bool {
 // needs to be called with rf.mu locked
 func (rf *Raft) getLastLogEntry() LogEntry {
 	li := len(rf.logs) - 1
+	if li < 0 {
+		return LogEntry{Id: rf.snapshotLastIndex, Term: rf.snapshotlastTerm}
+	}
 	return rf.logs[li]
 }
 

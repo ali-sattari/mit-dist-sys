@@ -164,6 +164,44 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 }
 
+func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	rf.logger.Debug("install snapshot",
+		"currentTerm", rf.currentTerm,
+		"len", rf.getLogLen(),
+		"snapshotLastIndex", rf.snapshotLastIndex,
+		"args", args)
+
+	reply.Term = rf.currentTerm
+
+	// check outdated leader
+	if args.Term < rf.currentTerm {
+		return
+	}
+
+	// check outdated snapshot
+	if args.LastIncludedIndex < rf.snapshotLastIndex ||
+		args.LastIncludedIndex < rf.commitIndex {
+		return
+	}
+
+	// apply snapshot
+	idx := args.LastIncludedIndex - rf.snapshotLastIndex
+	if idx < rf.getLogLen() {
+		rf.logs = rf.logs[idx:]
+	} else {
+		rf.logs = []LogEntry{{Id: 0, Term: 0}}
+	}
+	rf.snapshotLastIndex = args.LastIncludedIndex
+	rf.snapshotlastTerm = args.LastIncludedTerm
+	rf.snapshot = args.Data
+
+	// persist
+	rf.persist()
+}
+
 // needs to be called with rf.mu locked
 func (rf *Raft) deleteLogEntries(from int) {
 	idx := from - rf.snapshotLastIndex

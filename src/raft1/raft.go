@@ -164,6 +164,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// apply snapshot
 	rf.snapshotLastIndex = index
 	rf.snapshotlastTerm = rf.logs[idx].Term
+	rf.snapshot = snapshot
 	rf.logs = rf.logs[idx:]
 
 	// persist
@@ -233,7 +234,7 @@ func Make(
 	rf.persister = persister
 	rf.me = me
 
-	rf.logs = []LogEntry{0: {Id: 0, Term: 0}}
+	rf.logs = []LogEntry{{Id: 0, Term: 0}}
 	rf.nodeRole = Follower
 	rf.currentTerm = 0
 	rf.votedFor = -1

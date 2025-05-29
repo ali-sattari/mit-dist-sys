@@ -11,6 +11,11 @@ func (rf *Raft) sendAppendEntry(server int, args *AppendEntryArgs, reply *Append
 	return ok
 }
 
+func (rf *Raft) sendInstallSnapshot(server int, args *InstallSnapshotArgs, reply *InstallSnapshotReply) bool {
+	ok := rf.peers[server].Call("Raft.InstallSnapshot", args, reply)
+	return ok
+}
+
 // needs to be called with rf.mu locked
 func (rf *Raft) sendCommand(cmd any) int {
 	l := LogEntry{
@@ -43,6 +48,11 @@ func (rf *Raft) replicateLogEntries(force bool) {
 			continue
 		}
 
+		if rf.needsSnapshot(i) {
+			rf.sendSnapshotToFollower(i)
+			continue
+		}
+
 		entries := rf.getEntriesForFollower(i)
 
 		// if not heartbeat
@@ -63,6 +73,14 @@ func (rf *Raft) replicateLogEntries(force bool) {
 
 		rf.replicateEnteriesToFollower(entries, i)
 	}
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) needsSnapshot(server int) bool {
+	if rf.snapshotLastIndex >= rf.nextIndex[server] {
+		return true
+	}
+	return false
 }
 
 // needs to be called with rf.mu locked
@@ -104,6 +122,24 @@ func (rf *Raft) replicateEnteriesToFollower(entries []LogEntry, follower int) {
 			}
 		}
 	}()
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) sendSnapshotToFollower(follower int) {
+	a := InstallSnapshotArgs{
+		Term:              rf.currentTerm,
+		LeaderId:          rf.me,
+		LastIncludedIndex: rf.snapshotLastIndex,
+		LastIncludedTerm:  rf.snapshotlastTerm,
+		Data:              rf.snapshot,
+	}
+	r := InstallSnapshotReply{}
+
+	if ok := rf.sendInstallSnapshot(follower, &a, &r); ok {
+		if r.Term > rf.currentTerm {
+			rf.transition(Follower)
+		}
+	}
 }
 
 func (rf *Raft) receiveAppendReply() {
@@ -182,8 +218,8 @@ func (rf *Raft) receiveAppendReply() {
 			}
 
 			// send logs immediately
-			entries := rf.getEntriesForFollower(r.PeerId)
-			rf.replicateEnteriesToFollower(entries, r.PeerId)
+			// entries := rf.getEntriesForFollower(r.PeerId)
+			// rf.replicateEnteriesToFollower(entries, r.PeerId)
 		}
 
 		rf.mu.Unlock()
