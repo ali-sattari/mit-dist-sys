@@ -23,6 +23,8 @@ import (
 	tester "6.5840/tester1"
 )
 
+const applyBufferSize = 100
+
 // A Go object implementing a single Raft peer.
 type Raft struct {
 	mu        sync.RWMutex        // Lock to protect shared access to this peer's state
@@ -42,6 +44,7 @@ type Raft struct {
 	// channels
 	voteReplyCh   chan RequestVoteResult // candidate
 	appendReplyCh chan AppendEntryResult //leader
+	sendLogCh     chan LogEntry          // all
 	applyCh       chan raftapi.ApplyMsg  //all
 
 	// context
@@ -239,6 +242,7 @@ func Make(
 
 	rf.voteReplyCh = make(chan RequestVoteResult)
 	rf.appendReplyCh = make(chan AppendEntryResult)
+	rf.sendLogCh = make(chan LogEntry, applyBufferSize)
 	rf.applyCh = applyCh
 
 	rf.nextIndex = make(map[int]int)
@@ -256,6 +260,7 @@ func Make(
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
+	go rf.apply()
 
 	return rf
 }

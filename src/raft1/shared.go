@@ -63,7 +63,15 @@ func (rf *Raft) sendCommittedToApp() {
 			break
 		}
 		rf.lastApplied++
-		l := rf.logs[rf.lastApplied]
+		rf.sendLogCh <- rf.getLogEntry(rf.lastApplied)
+	}
+}
+
+func (rf *Raft) apply() {
+	for l := range rf.sendLogCh {
+		if rf.killed() {
+			continue
+		}
 		rf.applyCh <- raftapi.ApplyMsg{
 			CommandValid: true,
 			Command:      l.Command,
@@ -73,7 +81,7 @@ func (rf *Raft) sendCommittedToApp() {
 			"currentTerm", rf.currentTerm,
 			"commitIndex", rf.commitIndex,
 			"lastApplied", rf.lastApplied,
-			"entry", rf.logs[rf.lastApplied],
+			"entry", l,
 		)
 	}
 }
