@@ -42,21 +42,33 @@ func (rf *Raft) needsElection() bool {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) getLastLogEntry() LogEntry {
-	li := len(rf.logs) - 1
-	if li < 0 {
+	if len(rf.logs) < 1 {
 		return LogEntry{Id: rf.snapshotLastIndex, Term: rf.snapshotlastTerm}
 	}
-	return rf.logs[li]
+	return rf.logs[len(rf.logs)-1]
 }
 
 // needs to be called with rf.mu locked
 func (rf *Raft) getLogEntry(id int) LogEntry {
-	return rf.logs[id-rf.snapshotLastIndex]
+	if id != 1 && id <= rf.snapshotLastIndex {
+		return LogEntry{Id: rf.snapshotLastIndex, Term: rf.snapshotlastTerm}
+	}
+	return rf.logs[rf.raftIdToSliceIndex(id)]
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) raftIdToSliceIndex(id int) int {
+	return id - rf.snapshotLastIndex
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) sliceIndexToRaftId(idx int) int {
+	return rf.logs[idx].Id
 }
 
 // needs to be called with rf.mu locked
 func (rf *Raft) getLogLen() int {
-	return rf.snapshotLastIndex + len(rf.logs)
+	return rf.snapshotLastIndex + len(rf.logs) - 1
 }
 
 // needs to be called with rf.mu locked
@@ -100,7 +112,7 @@ func (rf *Raft) findFirstIndexForTerm(t int) int {
 	l := -1
 	for i := 0; i < len(rf.logs); i++ {
 		if rf.logs[i].Term == t {
-			l = i
+			l = rf.logs[i].Id
 			break
 		}
 	}
@@ -112,9 +124,19 @@ func (rf *Raft) findLastIndexForTerm(t int) int {
 	l := -1
 	for i := len(rf.logs) - 1; i >= 0; i-- {
 		if rf.logs[i].Term == t {
-			l = i
+			l = rf.logs[i].Id
 			break
 		}
 	}
 	return l
+}
+
+// needs to be called with rf.mu locked
+func (rf *Raft) truncateLogFrom(id int) {
+	l := []LogEntry{}
+	if id < rf.getLogLen() {
+		rf.logs = append(l, rf.logs[id+1:]...)
+	} else {
+		rf.logs = l
+	}
 }

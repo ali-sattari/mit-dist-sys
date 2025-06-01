@@ -127,6 +127,7 @@ func (rf *Raft) readPersist(data []byte) {
 	rf.logger.Info("loaded persistent state",
 		"currentTerm", rf.currentTerm,
 		"votedFor", rf.votedFor,
+		"len", rf.getLogLen(),
 		"logs", len(rf.logs),
 	)
 }
@@ -155,7 +156,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 		return
 	}
 
-	idx := index - rf.snapshotLastIndex
+	idx := rf.raftIdToSliceIndex(index)
 	rf.logger.Info("received snapshot",
 		"index", index,
 		"lastLog", rf.logs[idx],
@@ -165,7 +166,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	rf.snapshotLastIndex = index
 	rf.snapshotlastTerm = rf.logs[idx].Term
 	rf.snapshot = snapshot
-	rf.logs = rf.logs[idx:]
+	rf.truncateLogFrom(idx)
 
 	// persist
 	rf.persist()
@@ -234,7 +235,7 @@ func Make(
 	rf.persister = persister
 	rf.me = me
 
-	rf.logs = []LogEntry{{Id: 0, Term: 0}}
+	rf.logs = []LogEntry{}
 	rf.nodeRole = Follower
 	rf.currentTerm = 0
 	rf.votedFor = -1
@@ -250,7 +251,8 @@ func Make(
 	rf.matchIndex = make(map[int]int)
 
 	rf.snapshot = []byte{}
-	rf.snapshotLastIndex = 0
+	// to balance the 0 based slice from the beggining
+	rf.snapshotLastIndex = 1
 	rf.snapshotlastTerm = 0
 
 	rf.setupLogging()

@@ -19,7 +19,7 @@ func (rf *Raft) sendInstallSnapshot(server int, args *InstallSnapshotArgs, reply
 // needs to be called with rf.mu locked
 func (rf *Raft) sendCommand(cmd any) int {
 	l := LogEntry{
-		Id:      rf.getLogLen(),
+		Id:      rf.getLogLen() + 1,
 		Term:    rf.currentTerm,
 		Command: cmd,
 	}
@@ -77,15 +77,15 @@ func (rf *Raft) replicateLogEntries(force bool) {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) needsSnapshot(server int) bool {
-	if rf.snapshotLastIndex >= rf.nextIndex[server] {
-		return true
-	}
-	return false
+	return rf.snapshotLastIndex > rf.nextIndex[server]
 }
 
 // needs to be called with rf.mu locked
 func (rf *Raft) getEntriesForFollower(server int) []LogEntry {
-	idx := rf.nextIndex[server] - rf.snapshotLastIndex
+	idx := rf.raftIdToSliceIndex(rf.nextIndex[server])
+	if idx < 0 {
+		return []LogEntry{}
+	}
 	return rf.logs[idx:]
 }
 
@@ -95,7 +95,7 @@ func (rf *Raft) setFollowerIndexes() {
 		if i == rf.me {
 			continue
 		}
-		rf.nextIndex[i] = rf.getLogLen()
+		rf.nextIndex[i] = rf.getLogLen() + 1
 		rf.matchIndex[i] = 0
 	}
 }
@@ -125,7 +125,7 @@ func (rf *Raft) replicateEnteriesToFollower(entries []LogEntry, follower int) {
 }
 
 // needs to be called with rf.mu locked
-func (rf *Raft) sendSnapshotToFollower(follower int) {
+func (rf *Raft) sendSnapshotToFollower(server int) {
 	a := InstallSnapshotArgs{
 		Term:              rf.currentTerm,
 		LeaderId:          rf.me,
@@ -135,10 +135,14 @@ func (rf *Raft) sendSnapshotToFollower(follower int) {
 	}
 	r := InstallSnapshotReply{}
 
-	if ok := rf.sendInstallSnapshot(follower, &a, &r); ok {
+	if ok := rf.sendInstallSnapshot(server, &a, &r); ok {
 		if r.Term > rf.currentTerm {
+			rf.increaseTerm(r.Term)
 			rf.transition(Follower)
+			return
 		}
+		rf.matchIndex[server] = rf.snapshotLastIndex
+		rf.nextIndex[server] = rf.snapshotLastIndex + 1
 	}
 }
 
@@ -205,7 +209,7 @@ func (rf *Raft) receiveAppendReply() {
 			// lagging follower conflict resolution
 			if r.XTerm == -1 {
 				// Case 3: Follower's log shorter than leader's
-				rf.nextIndex[r.PeerId] = r.XLen
+				rf.nextIndex[r.PeerId] = r.XLen + 1
 			} else {
 				lastXTermIndex := rf.findLastIndexForTerm(r.XTerm)
 				if lastXTermIndex != -1 {
@@ -232,14 +236,13 @@ func (rf *Raft) maybeCommitEntries() {
 	var matchIndexes []int
 
 	// always include the leader's own log length as if it were a matchIndex
-	matchIndexes = append(matchIndexes, rf.getLogLen()-1)
+	matchIndexes = append(matchIndexes, rf.getLogLen())
 	for _, idx := range rf.matchIndex {
 		matchIndexes = append(matchIndexes, idx)
 	}
 	sort.Ints(matchIndexes)
 	// median of sorted match indexes is the same as majority
 	majorityIdx := matchIndexes[len(matchIndexes)/2]
-
 	if majorityIdx > rf.commitIndex {
 		// check if term is still valid (fig 8)
 		if rf.getLogEntry(majorityIdx).Term == rf.currentTerm {

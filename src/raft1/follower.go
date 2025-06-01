@@ -2,6 +2,8 @@ package raft
 
 import (
 	"time"
+
+	"6.5840/raftapi"
 )
 
 func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
@@ -32,7 +34,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	reply.XIndex = -1
 
 	// fig 2: Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
-	if args.PrevLogIndex >= rf.getLogLen() {
+	if args.PrevLogIndex > rf.getLogLen() {
 		rf.logger.Info("rejecting entry, log length mismatch",
 			"currentTerm", rf.currentTerm,
 			"args", args,
@@ -64,7 +66,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 
 	// append entries
 	for _, e := range args.Entries {
-		if rf.getLogLen() > e.Id {
+		if rf.getLogLen() >= e.Id {
 			ll := rf.getLogEntry(e.Id)
 			if ll.Term != e.Term { // 5.3
 				rf.logger.Info("deleting log entries",
@@ -75,6 +77,12 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 				rf.deleteLogEntries(e.Id)
 			} else {
 				// same log id and term, must be duplicate message, discard
+				rf.logger.Info("duplicate log entry?",
+					"currentTerm", rf.currentTerm,
+					"incoming", e,
+					"existing", ll,
+					"logs", rf.logs,
+				)
 				continue
 			}
 		}
@@ -172,7 +180,9 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		"currentTerm", rf.currentTerm,
 		"len", rf.getLogLen(),
 		"snapshotLastIndex", rf.snapshotLastIndex,
-		"args", args)
+		"idx", rf.raftIdToSliceIndex(args.LastIncludedIndex),
+		"args", args,
+	)
 
 	reply.Term = rf.currentTerm
 
@@ -187,16 +197,21 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		return
 	}
 
-	// apply snapshot
-	idx := args.LastIncludedIndex - rf.snapshotLastIndex
-	if idx < rf.getLogLen() {
-		rf.logs = rf.logs[idx:]
-	} else {
-		rf.logs = []LogEntry{{Id: 0, Term: 0}}
-	}
+	rf.lastBeat = time.Now()
+
+	// install snapshot
+	rf.truncateLogFrom(args.LastIncludedIndex - rf.snapshotLastIndex)
 	rf.snapshotLastIndex = args.LastIncludedIndex
 	rf.snapshotlastTerm = args.LastIncludedTerm
 	rf.snapshot = args.Data
+
+	// apply snapshot?
+	rf.applyCh <- raftapi.ApplyMsg{
+		SnapshotValid: true,
+		Snapshot:      args.Data,
+		SnapshotIndex: args.LastIncludedIndex,
+		SnapshotTerm:  args.LastIncludedTerm,
+	}
 
 	// persist
 	rf.persist()
@@ -204,7 +219,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 
 // needs to be called with rf.mu locked
 func (rf *Raft) deleteLogEntries(from int) {
-	idx := from - rf.snapshotLastIndex
+	idx := rf.raftIdToSliceIndex(from)
 	rf.logs = rf.logs[:idx]
 	rf.persist()
 }
