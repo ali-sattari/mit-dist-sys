@@ -43,6 +43,9 @@ func (rf *Raft) needsElection() bool {
 // needs to be called with rf.mu locked
 func (rf *Raft) getLastLogEntry() LogEntry {
 	if len(rf.logs) < 1 {
+		if rf.snapshotLastIndex == 1 {
+			return LogEntry{Id: 0, Term: 0}
+		}
 		return LogEntry{Id: rf.snapshotLastIndex, Term: rf.snapshotlastTerm}
 	}
 	return rf.logs[len(rf.logs)-1]
@@ -58,7 +61,10 @@ func (rf *Raft) getLogEntry(id int) LogEntry {
 
 // needs to be called with rf.mu locked
 func (rf *Raft) raftIdToSliceIndex(id int) int {
-	return id - rf.snapshotLastIndex
+	if rf.snapshotLastIndex == 1 {
+		return id - rf.snapshotLastIndex
+	}
+	return id - rf.snapshotLastIndex - 1
 }
 
 // needs to be called with rf.mu locked

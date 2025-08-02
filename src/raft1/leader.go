@@ -19,7 +19,7 @@ func (rf *Raft) sendInstallSnapshot(server int, args *InstallSnapshotArgs, reply
 // needs to be called with rf.mu locked
 func (rf *Raft) sendCommand(cmd any) int {
 	l := LogEntry{
-		Id:      rf.getLogLen() + 1,
+		Id:      rf.getLastLogEntry().Id + 1,
 		Term:    rf.currentTerm,
 		Command: cmd,
 	}
@@ -61,6 +61,7 @@ func (rf *Raft) replicateLogEntries(force bool) {
 				"currentTerm", rf.currentTerm,
 				"nextIndex", rf.nextIndex[i],
 				"matchIndex", rf.matchIndex[i],
+				"snapshotLastIndex", rf.snapshotLastIndex,
 				"len", len(entries),
 			)
 		} else {
@@ -68,6 +69,7 @@ func (rf *Raft) replicateLogEntries(force bool) {
 				"currentTerm", rf.currentTerm,
 				"nextIndex", rf.nextIndex[i],
 				"matchIndex", rf.matchIndex[i],
+				"snapshotLastIndex", rf.snapshotLastIndex,
 			)
 		}
 
@@ -83,7 +85,7 @@ func (rf *Raft) needsSnapshot(server int) bool {
 // needs to be called with rf.mu locked
 func (rf *Raft) getEntriesForFollower(server int) []LogEntry {
 	idx := rf.raftIdToSliceIndex(rf.nextIndex[server])
-	if idx < 0 {
+	if idx < 0 || idx >= len(rf.logs) {
 		return []LogEntry{}
 	}
 	return rf.logs[idx:]
